@@ -75,6 +75,15 @@ Bot is in 1 guild(s)
 Scheduler started with poll creation on sun at 18:00 UTC
 ```
 
+### 5. Test the Bot
+
+In your Discord channel, type:
+```
+!ping
+```
+
+The bot should respond with "🏓 Pong!" and show its latency, confirming it's online and responsive.
+
 ## Management Commands
 
 ### Start the Bot

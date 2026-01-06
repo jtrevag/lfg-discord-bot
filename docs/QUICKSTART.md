@@ -71,10 +71,19 @@ Poll scheduler started!
 
 ## Testing
 
+### Check Bot Status
+
+In your Discord channel, type:
+```
+!ping
+```
+
+The bot will respond with "🏓 Pong!" and show its latency. This confirms the bot is online and responsive.
+
 ### Test the Optimizer (No Discord Required)
 
 ```bash
-python test_optimizer.py
+python tests/test_optimizer.py
 ```
 
 This runs the pod optimization algorithm with various scenarios.

@@ -190,12 +190,16 @@ The bot will:
 
 ## Manual Commands
 
-The bot supports admin-only commands for testing and manual control:
+### Status Check
+
+- `!ping` - Check if the bot is online and responsive (shows latency)
+
+### Admin Commands
+
+The following commands require Discord Administrator permissions:
 
 - `!createpoll` - Manually create a poll
 - `!calculatepods` - Manually calculate pods from the current poll
-
-**Note:** These commands require Discord Administrator permissions.
 
 ## How It Works
 

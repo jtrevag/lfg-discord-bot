@@ -13,6 +13,12 @@ class PollsCog(commands.Cog, name="Polls"):
         """Initialize the cog."""
         self.bot = bot
 
+    @commands.command(name='ping')
+    async def ping_command(self, ctx):
+        """Check if the bot is online and responsive."""
+        latency_ms = round(self.bot.latency * 1000)
+        await ctx.send(f"🏓 Pong! Bot is online. Latency: {latency_ms}ms")
+
     @commands.command(name='createpoll')
     @commands.has_permissions(administrator=True)
     async def create_poll_command(self, ctx):
