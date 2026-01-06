@@ -1,0 +1,17 @@
+{
+  "poll_days": ["Monday", "Tuesday", "Wednesday"],
+  "poll_schedule": {
+    "day_of_week": "sun",
+    "hour": 18,
+    "minute": 0,
+    "timezone": "UTC"
+  },
+  "cutoff_schedule": {
+    "day_of_week": "mon",
+    "hour": 18,
+    "minute": 0,
+    "timezone": "UTC"
+  },
+  "poll_question": "Which days are you available for Commander this week?",
+  "poll_duration_hours": 24
+}
