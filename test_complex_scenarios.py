@@ -42,10 +42,10 @@ class TestComplexPodScenarios(unittest.TestCase):
     def test_scenario_2_one_overlap_player(self):
         """
         Scenario 2: One player available both days, others single day
-        Mon: Alice, Bob, Charlie, Grace (4 players)
-        Wed: Alice, Dave, Eve, Frank, Henry (5 players)
-        Note: Greedy algorithm prioritizes Wednesday (more players), assigns Alice there.
-        Expected: 1 pod forms (greedy algorithm limitation)
+        Mon: Bob, Charlie, Grace (3 unique) + Alice (flexible) = 4 total
+        Wed: Dave, Eve, Frank, Henry (4 unique) + Alice (flexible) = 5 total
+        With 5b: Alice detected as critical for Monday (Mon < 4 without her, Wed >= 4)
+        Expected: Alice assigned to Monday, 2 pods form
         """
         print("\n" + "="*60)
         print("SCENARIO 2: One player (Alice) available both Mon & Wed")
@@ -65,10 +65,11 @@ class TestComplexPodScenarios(unittest.TestCase):
         result = optimize_pods(availability)
         print(format_pod_results(result))
 
-        # Current greedy algorithm forms 1 pod (Wednesday prioritized due to 5 players)
-        # Optimal would be 2 pods, but that requires smarter algorithm
-        self.assertGreaterEqual(len(result.pods), 1, "Should form at least 1 pod")
-        self.assertGreaterEqual(len(result.players_with_games), 4, "At least 4 players should play")
+        # With 5b critical player detection, Alice assigned to Monday
+        # Both pods form optimally
+        self.assertEqual(len(result.pods), 2, "Should form 2 pods")
+        self.assertEqual(len(result.players_with_games), 8, "All 8 players should play")
+        self.assertEqual(len(result.players_without_games), 0, "No players left out")
 
     def test_scenario_3_critical_overlap_player(self):
         """

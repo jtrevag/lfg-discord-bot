@@ -69,16 +69,62 @@ def _count_unique_players(day: str, day_to_players: Dict[str, List[str]], availa
     return unique_count
 
 
+def _detect_critical_flexible_players(
+    day_to_players: Dict[str, List[str]],
+    availability: Dict[str, List[str]]
+) -> Dict[str, str]:
+    """
+    Detect flexible players who are critical for a specific day.
+
+    A flexible player (available 2+ days) is "critical" for Day A if:
+    - Day A would have < 4 players without them
+    - At least one other day they're available on would still have >= 4 players without them
+
+    Returns:
+        Dict mapping player_id -> day they must be assigned to
+    """
+    critical_assignments = {}
+
+    # Find all flexible players (available on 2+ days)
+    flexible_players = {
+        player: days
+        for player, days in availability.items()
+        if len(days) >= 2
+    }
+
+    for player, player_days in flexible_players.items():
+        # Count how many players each day would have WITHOUT this player
+        days_remaining = {}
+        for day in player_days:
+            players_on_day = day_to_players.get(day, [])
+            remaining_count = len([p for p in players_on_day if p != player])
+            days_remaining[day] = remaining_count
+
+        # Check if player is critical for exactly one day
+        days_needing_player = [day for day, count in days_remaining.items() if count < 4]
+        days_not_needing_player = [day for day, count in days_remaining.items() if count >= 4]
+
+        # If player is critical for one day but not others, assign them there
+        if len(days_needing_player) == 1 and len(days_not_needing_player) >= 1:
+            critical_day = days_needing_player[0]
+            critical_assignments[player] = critical_day
+
+    return critical_assignments
+
+
 def _find_best_assignment(
     day_to_players: Dict[str, List[str]],
     all_players: Set[str],
     availability: Dict[str, List[str]] = None
 ) -> OptimizationResult:
     """
-    Find the best pod assignment using a greedy approach prioritizing unique players.
+    Find the best pod assignment using enhanced greedy approach.
 
-    Strategy: Prioritize days with more "unique" players (available only on that day)
-    to avoid stranding inflexible players while flexible players fill other days.
+    Strategy:
+    1. Detect critical flexible players (must be assigned to specific day)
+    2. Pre-assign critical players to their required days
+    3. Prioritize remaining days by unique player count
+    4. Form pods greedily on sorted days
     """
     pods = []
     assigned_players = set()
@@ -92,27 +138,52 @@ def _find_best_assignment(
                     availability[player] = []
                 availability[player].append(day)
 
-    # Sort days by unique player count first, then total count (both descending)
+    # STEP 1: Detect and pre-assign critical flexible players
+    critical_assignments = _detect_critical_flexible_players(day_to_players, availability)
+
+    # Group critical players by their required day
+    critical_by_day: Dict[str, List[str]] = {}
+    for player, day in critical_assignments.items():
+        if day not in critical_by_day:
+            critical_by_day[day] = []
+        critical_by_day[day].append(player)
+
+    # Mark critical players as reserved (can't be used on other days)
+    reserved_players = set(critical_assignments.keys())
+
+    # STEP 2: Sort days by unique player count first, then total count (both descending)
     sorted_days = sorted(
         day_to_players.items(),
         key=lambda x: (_count_unique_players(x[0], day_to_players, availability), len(x[1])),
         reverse=True
     )
 
+    # STEP 3: Form pods with critical players pre-assigned to their required days
     for day, available in sorted_days:
-        # Get players who are available and not yet assigned
-        unassigned_available = [p for p in available if p not in assigned_players]
+        # Start with critical players for this day (if any)
+        critical_for_day = critical_by_day.get(day, [])
 
-        # If we have exactly 4 or more players, form pods
+        # Get other players available on this day who aren't assigned or reserved elsewhere
+        unassigned_available = [
+            p for p in available
+            if p not in assigned_players and (p not in reserved_players or p in critical_for_day)
+        ]
+
+        # Form pods while we have enough players
         while len(unassigned_available) >= 4:
-            # Take first 4 players (could be optimized further)
             pod_players = unassigned_available[:4]
             pods.append(PodAssignment(day=day, players=pod_players))
 
             for player in pod_players:
                 assigned_players.add(player)
+                if player in reserved_players:
+                    reserved_players.remove(player)  # No longer reserved once assigned
 
-            unassigned_available = [p for p in available if p not in assigned_players]
+            # Recalculate available players
+            unassigned_available = [
+                p for p in available
+                if p not in assigned_players and (p not in reserved_players or p in critical_for_day)
+            ]
 
     players_without_games = all_players - assigned_players
 
