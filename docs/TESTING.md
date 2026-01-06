@@ -4,19 +4,19 @@ This guide covers running tests for the Commander Pod Discord Bot.
 
 ## Test Files
 
-- `test_pod_optimizer.py` - Unit tests for pod optimization logic
-- `test_scheduler.py` - Unit tests for poll scheduling functionality
-- `test_optimizer.py` - Integration tests with example scenarios
-- `test_complex_scenarios.py` - **Complex pod scheduling scenarios (12 progressive tests)**
-- `run_tests.py` - Test runner for all unit tests
-- `run_complex_tests.sh` - Quick runner for complex scenarios only
+- `tests/test_pod_optimizer.py` - Unit tests for pod optimization logic
+- `tests/test_scheduler.py` - Unit tests for poll scheduling functionality
+- `tests/test_optimizer.py` - Integration tests with example scenarios
+- `tests/test_complex_scenarios.py` - **Complex pod scheduling scenarios (12 progressive tests)**
+- `tests/run_tests.py` - Test runner for all unit tests
+- `scripts/run_complex_tests.sh` - Quick runner for complex scenarios only
 
 ## Running Tests
 
 ### Run All Unit Tests
 
 ```bash
-python run_tests.py
+python tests/run_tests.py
 ```
 
 This will discover and run all test files (test_*.py) with detailed output.
@@ -25,33 +25,33 @@ This will discover and run all test files (test_*.py) with detailed output.
 
 ```bash
 # Test pod optimizer
-python -m unittest test_pod_optimizer.py
+python -m unittest tests.test_pod_optimizer
 
 # Test scheduler
-python -m unittest test_scheduler.py
+python -m unittest tests.test_scheduler
 
 # Test complex scheduling scenarios (recommended!)
-python3 test_complex_scenarios.py
+python tests/test_complex_scenarios.py
 # Or use the shell script:
-./run_complex_tests.sh
+./scripts/run_complex_tests.sh
 ```
 
 ### Run Specific Test Class
 
 ```bash
-python -m unittest test_pod_optimizer.TestPodOptimizer
+python -m unittest tests.test_pod_optimizer.TestPodOptimizer
 ```
 
 ### Run Specific Test Method
 
 ```bash
-python -m unittest test_pod_optimizer.TestPodOptimizer.test_basic_four_player_pod
+python -m unittest tests.test_pod_optimizer.TestPodOptimizer.test_basic_four_player_pod
 ```
 
 ### Run Integration Tests (Visual Output)
 
 ```bash
-python test_optimizer.py
+python tests/test_optimizer.py
 ```
 
 This runs example scenarios and prints formatted results showing how the bot would respond.
@@ -59,14 +59,14 @@ This runs example scenarios and prints formatted results showing how the bot wou
 ### Run Complex Scheduling Scenarios
 
 ```bash
-python3 test_complex_scenarios.py
+python tests/test_complex_scenarios.py
 ```
 
 This runs 12 progressively complex pod scheduling scenarios with detailed output for each.
 
 ## Test Coverage
 
-### Pod Optimizer Tests (`test_pod_optimizer.py`)
+### Pod Optimizer Tests (`tests/test_pod_optimizer.py`)
 
 - ✅ Basic 4-player pod formation
 - ✅ Insufficient players (< 4)
@@ -79,7 +79,7 @@ This runs 12 progressively complex pod scheduling scenarios with detailed output
 - ✅ Result formatting
 - ✅ Helper functions
 
-### Scheduler Tests (`test_scheduler.py`)
+### Scheduler Tests (`tests/test_scheduler.py`)
 
 - ✅ Scheduler initialization
 - ✅ Poll job creation
@@ -93,7 +93,7 @@ This runs 12 progressively complex pod scheduling scenarios with detailed output
 - ✅ Missing timezone defaults
 - ✅ Invalid timezone handling
 
-### Complex Scheduling Scenarios (`test_complex_scenarios.py`)
+### Complex Scheduling Scenarios (`tests/test_complex_scenarios.py`)
 
 12 progressively complex scenarios testing pod assignment logic:
 
@@ -115,7 +115,7 @@ This runs 12 progressively complex pod scheduling scenarios with detailed output
 For more detailed test output:
 
 ```bash
-python -m unittest test_pod_optimizer.py -v
+python -m unittest tests.test_pod_optimizer -v
 ```
 
 ## Testing Best Practices
@@ -124,7 +124,7 @@ python -m unittest test_pod_optimizer.py -v
 
 Run all tests to ensure nothing is broken:
 ```bash
-python run_tests.py
+python tests/run_tests.py
 ```
 
 ### Testing New Features
@@ -138,7 +138,7 @@ python run_tests.py
 
 After unit tests pass, test with Discord:
 
-1. Start bot: `python bot.py`
+1. Start bot: `python run.py`
 2. Create test poll: `!createpoll`
 3. Vote with multiple accounts
 4. Calculate pods: `!calculatepods`
@@ -187,7 +187,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run tests
-        run: python run_tests.py
+        run: python tests/run_tests.py
 ```
 
 ## Debugging Failed Tests

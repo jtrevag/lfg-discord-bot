@@ -3,7 +3,13 @@ Unit tests for pod_optimizer.py
 """
 
 import unittest
-from pod_optimizer import (
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+
+from lfg_bot.utils.pod_optimizer import (
     optimize_pods,
     format_pod_results,
     PodAssignment,
@@ -171,7 +177,7 @@ class TestFormatResults(unittest.TestCase):
 
         self.assertIn('Monday', formatted)
         self.assertIn('alice', formatted)
-        self.assertIn('Total players with games: 4', formatted)
+        self.assertIn('**Total players with games:** 4', formatted)
 
     def test_format_no_pods(self):
         """Test formatting when no pods can be formed."""

@@ -26,9 +26,8 @@ class PollScheduler:
         self.config = config
         self.scheduler = AsyncIOScheduler()
 
-        # Import here to avoid circular dependency
-        from bot import scheduled_poll_creation
-        self.poll_creation_func = scheduled_poll_creation
+        # Store config for poll creation
+        self.config = config
 
     def start(self):
         """Start the scheduler with configured jobs."""
@@ -58,7 +57,8 @@ class PollScheduler:
 
     async def _create_poll_job(self):
         """Job wrapper for poll creation."""
-        await self.poll_creation_func(self.channel)
+        from lfg_bot.bot import scheduled_poll_creation
+        await scheduled_poll_creation(self.channel, self.config)
 
     def stop(self):
         """Stop the scheduler."""

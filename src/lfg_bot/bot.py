@@ -6,92 +6,89 @@ import os
 import json
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
 from typing import Dict, List
 from datetime import timedelta
 import asyncio
 
-from pod_optimizer import optimize_pods, format_pod_results
-from scheduler import PollScheduler
-
-# Load environment variables
-load_dotenv()
-
-# Configuration
-with open('config.json', 'r') as f:
-    config = json.load(f)
-
-# Bot setup
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.polls = True
-
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-# Global state
-active_poll_id = None
-poll_scheduler = None
+from lfg_bot.utils.pod_optimizer import optimize_pods, format_pod_results
+from lfg_bot.utils.scheduler import PollScheduler
 
 
-@bot.event
-async def on_ready():
-    """Called when bot is ready."""
-    print(f'{bot.user} has connected to Discord!')
-    print(f'Bot is in {len(bot.guilds)} guild(s)')
-
-    # Start the scheduler
-    global poll_scheduler
-    channel = bot.get_channel(int(os.getenv('POLL_CHANNEL_ID')))
-    if channel:
-        poll_scheduler = PollScheduler(bot, channel, config)
-        poll_scheduler.start()
-        print('Poll scheduler started!')
-    else:
-        print('Warning: Poll channel not found. Check POLL_CHANNEL_ID in .env')
+def load_config():
+    """Load configuration from config/config.json."""
+    config_path = 'config/config.json'
+    with open(config_path, 'r') as f:
+        return json.load(f)
 
 
-@bot.command(name='createpoll')
-@commands.has_permissions(administrator=True)
-async def create_poll_command(ctx):
-    """Manually create a poll (admin only)."""
-    await create_poll(ctx.channel)
+def create_bot():
+    """
+    Create and configure the Discord bot.
 
+    Returns:
+        Configured Discord bot instance
+    """
+    # Bot setup
+    intents = discord.Intents.default()
+    intents.message_content = True
+    intents.guilds = True
+    intents.polls = True
 
-@bot.command(name='calculatepods')
-@commands.has_permissions(administrator=True)
-async def calculate_pods_command(ctx):
-    """Manually trigger pod calculation from the latest poll (admin only)."""
-    global active_poll_id
+    bot = commands.Bot(command_prefix='!', intents=intents)
 
-    if not active_poll_id:
-        await ctx.send("No active poll found. Create a poll first with !createpoll")
-        return
+    # Load configuration
+    bot.config = load_config()
 
-    # Fetch the poll message
-    try:
-        message = await ctx.channel.fetch_message(active_poll_id)
-        if message.poll:
-            await process_poll_results(message.poll, ctx.channel)
+    # Global state
+    bot.active_poll_id = None
+    bot.poll_scheduler = None
+
+    # Register event handlers
+    @bot.event
+    async def on_ready():
+        """Called when bot is ready."""
+        print(f'{bot.user} has connected to Discord!')
+        print(f'Bot is in {len(bot.guilds)} guild(s)')
+
+        # Load cogs
+        await bot.load_extension('lfg_bot.cogs.polls')
+        print('Loaded cogs: polls')
+
+        # Start the scheduler
+        channel = bot.get_channel(int(os.getenv('POLL_CHANNEL_ID')))
+        if channel:
+            bot.poll_scheduler = PollScheduler(bot, channel, bot.config)
+            bot.poll_scheduler.start()
+            print('Poll scheduler started!')
         else:
-            await ctx.send("The message doesn't contain a poll.")
-    except discord.NotFound:
-        await ctx.send("Poll message not found.")
-    except Exception as e:
-        await ctx.send(f"Error fetching poll: {e}")
+            print('Warning: Poll channel not found. Check POLL_CHANNEL_ID in config/.env')
+
+    @bot.event
+    async def on_command_error(ctx, error):
+        """Handle command errors."""
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send("You don't have permission to use this command.")
+        elif isinstance(error, commands.CommandNotFound):
+            pass  # Ignore unknown commands
+        else:
+            print(f'Error: {error}')
+
+    return bot
 
 
-async def create_poll(channel: discord.TextChannel) -> discord.Message:
+async def create_poll(channel: discord.TextChannel, config: dict) -> discord.Message:
     """
     Create a poll in the specified channel.
 
     Args:
         channel: Discord channel to post the poll in
+        config: Configuration dictionary
 
     Returns:
         The message containing the poll
     """
-    global active_poll_id
+    # Get bot instance from channel
+    bot = channel.guild.get_member(channel.guild.me.id).bot if hasattr(channel.guild, 'me') else None
 
     # Create poll with day options
     duration_hours = config.get('poll_duration_hours', 168)  # Default 7 days
@@ -111,8 +108,13 @@ async def create_poll(channel: discord.TextChannel) -> discord.Message:
         poll=poll
     )
 
-    active_poll_id = message.id
-    print(f'Poll created with ID: {active_poll_id}')
+    # Store active poll ID on bot instance if available
+    if hasattr(channel, '_state') and hasattr(channel._state, '_get_client'):
+        bot_instance = channel._state._get_client()
+        if hasattr(bot_instance, 'active_poll_id'):
+            bot_instance.active_poll_id = message.id
+
+    print(f'Poll created with ID: {message.id}')
 
     # Schedule automatic pod calculation when poll ends
     asyncio.create_task(schedule_poll_completion(message.id, channel, duration_hours))
@@ -193,34 +195,13 @@ async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel)
     print(f'Players without games: {len(result.players_without_games)}')
 
 
-async def scheduled_poll_creation(channel: discord.TextChannel):
-    """Called by scheduler to create a poll."""
+async def scheduled_poll_creation(channel: discord.TextChannel, config: dict):
+    """
+    Called by scheduler to create a poll.
+
+    Args:
+        channel: Channel to post poll in
+        config: Configuration dictionary
+    """
     print('Creating scheduled poll...')
-    await create_poll(channel)
-
-
-@bot.event
-async def on_command_error(ctx, error):
-    """Handle command errors."""
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("You don't have permission to use this command.")
-    elif isinstance(error, commands.CommandNotFound):
-        pass  # Ignore unknown commands
-    else:
-        print(f'Error: {error}')
-
-
-def main():
-    """Run the bot."""
-    token = os.getenv('DISCORD_BOT_TOKEN')
-
-    if not token:
-        print("Error: DISCORD_BOT_TOKEN not found in .env file")
-        print("Please copy .env.example to .env and add your bot token")
-        return
-
-    bot.run(token)
-
-
-if __name__ == '__main__':
-    main()
+    await create_poll(channel, config)

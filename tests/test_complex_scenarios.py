@@ -4,7 +4,13 @@ Tests progressively more complicated player availability patterns.
 """
 
 import unittest
-from pod_optimizer import optimize_pods, format_pod_results
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+
+from lfg_bot.utils.pod_optimizer import optimize_pods, format_pod_results
 
 
 class TestComplexPodScenarios(unittest.TestCase):

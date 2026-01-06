@@ -62,25 +62,49 @@ pip install -r requirements.txt
 
 1. Copy the example environment file:
    ```bash
-   cp .env.example .env
+   cp config/.env.example config/.env
    ```
 
-2. Edit `.env` and add your credentials:
+2. Edit `config/.env` and add your credentials:
    ```
    DISCORD_BOT_TOKEN=your_bot_token_here
    POLL_CHANNEL_ID=your_channel_id_here
    ```
 
-3. (Optional) Edit `config.json` to customize:
+3. (Optional) Edit `config/config.json` to customize:
    - Poll days (default: Monday, Tuesday, Wednesday)
    - Poll schedule (when polls are posted)
    - Poll duration in hours (how long polls stay open)
    - Timezone settings
    - Poll question text
 
+## Project Structure
+
+```
+lfg-discord-bot/
+├── src/lfg_bot/          # Main bot package
+│   ├── __init__.py
+│   ├── main.py           # Entry point
+│   ├── bot.py            # Bot setup and core functions
+│   ├── cogs/             # Discord command modules
+│   │   ├── __init__.py
+│   │   └── polls.py      # Poll commands
+│   └── utils/            # Helper modules
+│       ├── __init__.py
+│       ├── pod_optimizer.py
+│       └── scheduler.py
+├── tests/                # Test files
+├── config/               # Configuration files
+│   ├── config.json
+│   └── .env.example
+├── docs/                 # Documentation
+├── run.py                # Simple entry point
+└── README.md
+```
+
 ## Configuration
 
-The `config.json` file contains scheduling and poll settings:
+The `config/config.json` file contains scheduling and poll settings:
 
 ```json
 {
@@ -133,7 +157,12 @@ Pods will be automatically calculated the following Friday at 8 PM.
 
 ```bash
 # Make sure virtual environment is activated
-python bot.py
+python run.py
+```
+
+Or use the module directly:
+```bash
+python -m lfg_bot.main
 ```
 
 The bot will:
@@ -202,35 +231,21 @@ Please choose which day you prefer to play, or if you can attend both!
 Please react or respond with your choice!
 ```
 
-## Project Structure
-
-```
-.
-├── bot.py              # Main bot logic and Discord client
-├── pod_optimizer.py    # Pod optimization algorithm
-├── scheduler.py        # Automated scheduling
-├── config.json         # Bot configuration
-├── .env               # Environment variables (not in git)
-├── .env.example       # Environment template
-├── requirements.txt   # Python dependencies
-└── README.md          # This file
-```
-
 ## Troubleshooting
 
 ### Bot doesn't respond
 - Check that the bot has proper permissions in the channel
 - Verify intents are enabled in Discord Developer Portal
-- Check bot token is correct in `.env`
+- Check bot token is correct in `config/.env`
 
 ### Polls not creating automatically
-- Check scheduler configuration in `config.json`
+- Check scheduler configuration in `config/config.json`
 - Verify timezone is correct
 - Check bot logs for errors
 
 ### "Poll message not found" error
 - Ensure the bot has "Read Message History" permission
-- Check that the poll channel ID is correct
+- Check that the poll channel ID is correct in `config/.env`
 
 ## Future Enhancements
 

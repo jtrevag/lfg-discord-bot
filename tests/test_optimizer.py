@@ -3,7 +3,13 @@ Test script for pod optimizer.
 Run this to test the optimization algorithm without needing Discord.
 """
 
-from pod_optimizer import optimize_pods, format_pod_results
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+
+from lfg_bot.utils.pod_optimizer import optimize_pods, format_pod_results
 
 
 def test_basic_scenario():

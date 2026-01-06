@@ -47,10 +47,10 @@ pip install -r requirements.txt
 
 Create a `.env` file:
 ```bash
-cp .env.example .env
+cp config/.env.example config/.env
 ```
 
-Edit `.env` with your values:
+Edit `config/.env` with your values:
 ```
 DISCORD_BOT_TOKEN=your_token_from_step_2
 POLL_CHANNEL_ID=your_channel_id_from_step_4
@@ -59,7 +59,7 @@ POLL_CHANNEL_ID=your_channel_id_from_step_4
 ### 6. Run the Bot
 
 ```bash
-python bot.py
+python run.py
 ```
 
 You should see:
@@ -99,12 +99,12 @@ The bot will calculate and display optimal pods.
 
 ## Scheduling
 
-By default (from `config.json`):
+By default (from `config/config.json`):
 - Polls posted: **Sunday at 6:00 PM UTC**
 - Poll duration: **24 hours**
 - Pods calculated: **Automatically when poll ends (Monday at 6:00 PM UTC)**
 
-To change this, edit `config.json`:
+To change this, edit `config/config.json`:
 
 ```json
 {
@@ -130,11 +130,11 @@ Common timezones:
 ## Common Issues
 
 **Bot is offline**
-- Check your token in `.env`
-- Make sure `python bot.py` is running
+- Check your token in `config/.env`
+- Make sure `python run.py` is running
 
 **Poll not appearing**
-- Check POLL_CHANNEL_ID in `.env`
+- Check POLL_CHANNEL_ID in `config/.env`
 - Verify bot has "Send Messages" and "Create Polls" permissions
 
 **"Missing Permissions" on commands**
@@ -143,9 +143,10 @@ Common timezones:
 
 ## Next Steps
 
-- Customize poll days in `config.json`
+- Customize poll days in `config/config.json`
 - Adjust schedule times for your group
 - Read the full README.md for more details
+- Check out `docs/TESTING.md` for testing information
 
 ## Need Help?
 

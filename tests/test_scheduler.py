@@ -6,8 +6,13 @@ import unittest
 from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from datetime import datetime
 import pytz
+import sys
+from pathlib import Path
 
-from scheduler import PollScheduler
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+
+from lfg_bot.utils.scheduler import PollScheduler
 
 
 class TestPollScheduler(unittest.TestCase):
@@ -27,12 +32,7 @@ class TestPollScheduler(unittest.TestCase):
                 'minute': 0,
                 'timezone': 'UTC'
             },
-            'cutoff_schedule': {
-                'day_of_week': 'mon',
-                'hour': 18,
-                'minute': 0,
-                'timezone': 'UTC'
-            }
+            'poll_duration_hours': 24
         }
 
     def test_scheduler_initialization(self):
@@ -44,7 +44,7 @@ class TestPollScheduler(unittest.TestCase):
         self.assertEqual(scheduler.config, self.config)
         self.assertIsNotNone(scheduler.scheduler)
 
-    @patch('scheduler.CronTrigger')
+    @patch('lfg_bot.utils.scheduler.CronTrigger')
     def test_start_creates_poll_job(self, mock_cron_trigger):
         """Test that start() creates the poll creation job."""
         scheduler = PollScheduler(self.mock_bot, self.mock_channel, self.config)
@@ -54,39 +54,32 @@ class TestPollScheduler(unittest.TestCase):
                 scheduler.start()
 
                 # Verify poll creation job was added
-                self.assertEqual(mock_add_job.call_count, 2)  # poll + cutoff
+                self.assertEqual(mock_add_job.call_count, 1)  # only poll creation
 
-                # Check first call (poll creation)
-                first_call = mock_add_job.call_args_list[0]
-                self.assertEqual(first_call[1]['id'], 'poll_creation')
-                self.assertEqual(first_call[1]['name'], 'Weekly Poll Creation')
+                # Check the call (poll creation)
+                call = mock_add_job.call_args_list[0]
+                self.assertEqual(call[1]['id'], 'poll_creation')
+                self.assertEqual(call[1]['name'], 'Weekly Poll Creation')
 
-    @patch('scheduler.CronTrigger')
-    def test_start_creates_cutoff_job(self, mock_cron_trigger):
-        """Test that start() creates the cutoff job."""
+    def test_scheduler_uses_poll_duration(self):
+        """Test that scheduler is configured with poll duration."""
         scheduler = PollScheduler(self.mock_bot, self.mock_channel, self.config)
 
-        with patch.object(scheduler.scheduler, 'add_job') as mock_add_job:
-            with patch.object(scheduler.scheduler, 'start'):
-                scheduler.start()
-
-                # Check second call (cutoff)
-                second_call = mock_add_job.call_args_list[1]
-                self.assertEqual(second_call[1]['id'], 'poll_cutoff')
-                self.assertEqual(second_call[1]['name'], 'Poll Cutoff and Pod Calculation')
+        # Verify the config includes poll duration
+        self.assertEqual(scheduler.config['poll_duration_hours'], 24)
 
     def test_cron_trigger_with_correct_timezone(self):
         """Test that CronTrigger is created with correct timezone."""
         scheduler = PollScheduler(self.mock_bot, self.mock_channel, self.config)
 
-        with patch('scheduler.CronTrigger') as mock_cron_trigger:
+        with patch('lfg_bot.utils.scheduler.CronTrigger') as mock_cron_trigger:
             with patch.object(scheduler.scheduler, 'add_job'):
                 with patch.object(scheduler.scheduler, 'start'):
                     scheduler.start()
 
                     # Verify CronTrigger was called with UTC timezone
                     calls = mock_cron_trigger.call_args_list
-                    self.assertEqual(len(calls), 2)
+                    self.assertEqual(len(calls), 1)
 
                     # Check poll schedule timezone
                     poll_call = calls[0]
@@ -104,17 +97,12 @@ class TestPollScheduler(unittest.TestCase):
                 'minute': 30,
                 'timezone': 'America/New_York'
             },
-            'cutoff_schedule': {
-                'day_of_week': 'fri',
-                'hour': 15,
-                'minute': 45,
-                'timezone': 'Europe/London'
-            }
+            'poll_duration_hours': 24
         }
 
         scheduler = PollScheduler(self.mock_bot, self.mock_channel, config_with_tz)
 
-        with patch('scheduler.CronTrigger') as mock_cron_trigger:
+        with patch('lfg_bot.utils.scheduler.CronTrigger') as mock_cron_trigger:
             with patch.object(scheduler.scheduler, 'add_job'):
                 with patch.object(scheduler.scheduler, 'start'):
                     scheduler.start()
@@ -127,13 +115,7 @@ class TestPollScheduler(unittest.TestCase):
                     self.assertEqual(poll_call[1]['hour'], 10)
                     self.assertEqual(poll_call[1]['minute'], 30)
 
-                    # Check cutoff schedule
-                    cutoff_call = calls[1]
-                    self.assertEqual(cutoff_call[1]['timezone'].zone, 'Europe/London')
-                    self.assertEqual(cutoff_call[1]['hour'], 15)
-                    self.assertEqual(cutoff_call[1]['minute'], 45)
-
-    @patch('scheduler.scheduled_poll_creation')
+    @patch('lfg_bot.bot.scheduled_poll_creation')
     def test_create_poll_job_execution(self, mock_poll_creation):
         """Test that poll creation job calls the correct function."""
         mock_poll_creation.return_value = AsyncMock()
@@ -149,18 +131,6 @@ class TestPollScheduler(unittest.TestCase):
 
         # Note: The actual call verification depends on how we mock scheduled_poll_creation
 
-    @patch('scheduler.scheduled_cutoff')
-    def test_cutoff_job_execution(self, mock_cutoff):
-        """Test that cutoff job calls the correct function."""
-        mock_cutoff.return_value = AsyncMock()
-
-        scheduler = PollScheduler(self.mock_bot, self.mock_channel, self.config)
-
-        import asyncio
-        async def run_test():
-            await scheduler._cutoff_job()
-
-        asyncio.run(run_test())
 
     def test_stop_scheduler(self):
         """Test that stop() shuts down the scheduler."""
@@ -190,23 +160,19 @@ class TestPollScheduler(unittest.TestCase):
                 'hour': 18,
                 'minute': 0
             },
-            'cutoff_schedule': {
-                'day_of_week': 'mon',
-                'hour': 18,
-                'minute': 0
-            }
+            'poll_duration_hours': 24
         }
 
         scheduler = PollScheduler(self.mock_bot, self.mock_channel, config_no_tz)
 
-        with patch('scheduler.CronTrigger') as mock_cron_trigger:
+        with patch('lfg_bot.utils.scheduler.CronTrigger') as mock_cron_trigger:
             with patch.object(scheduler.scheduler, 'add_job'):
                 with patch.object(scheduler.scheduler, 'start'):
                     scheduler.start()
 
-                    # Both calls should default to UTC
-                    for call in mock_cron_trigger.call_args_list:
-                        self.assertEqual(call[1]['timezone'].zone, 'UTC')
+                    # Call should default to UTC
+                    call = mock_cron_trigger.call_args_list[0]
+                    self.assertEqual(call[1]['timezone'].zone, 'UTC')
 
 
 class TestSchedulerIntegration(unittest.TestCase):
@@ -223,12 +189,7 @@ class TestSchedulerIntegration(unittest.TestCase):
                 'minute': 0,
                 'timezone': 'UTC'
             },
-            'cutoff_schedule': {
-                'day_of_week': 'mon',
-                'hour': 18,
-                'minute': 0,
-                'timezone': 'UTC'
-            }
+            'poll_duration_hours': 24
         }
 
     def test_full_scheduler_lifecycle(self):
@@ -255,12 +216,7 @@ class TestSchedulerIntegration(unittest.TestCase):
                 'minute': 0,
                 'timezone': 'Invalid/Timezone'
             },
-            'cutoff_schedule': {
-                'day_of_week': 'mon',
-                'hour': 18,
-                'minute': 0,
-                'timezone': 'UTC'
-            }
+            'poll_duration_hours': 24
         }
 
         scheduler = PollScheduler(self.mock_bot, self.mock_channel, config_bad_tz)
