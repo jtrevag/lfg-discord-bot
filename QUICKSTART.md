@@ -101,7 +101,8 @@ The bot will calculate and display optimal pods.
 
 By default (from `config.json`):
 - Polls posted: **Sunday at 6:00 PM UTC**
-- Pods calculated: **Saturday at 12:00 PM UTC**
+- Poll duration: **24 hours**
+- Pods calculated: **Automatically when poll ends (Monday at 6:00 PM UTC)**
 
 To change this, edit `config.json`:
 
@@ -113,14 +114,11 @@ To change this, edit `config.json`:
     "minute": 0,
     "timezone": "America/New_York"
   },
-  "cutoff_schedule": {
-    "day_of_week": "sat",
-    "hour": 12,
-    "minute": 0,
-    "timezone": "America/New_York"
-  }
+  "poll_duration_hours": 24
 }
 ```
+
+**Note:** Pods are automatically calculated when the poll ends. The duration determines when this happens.
 
 Common timezones:
 - `America/New_York` (EST/EDT)

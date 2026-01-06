@@ -5,11 +5,11 @@ A Discord bot that automates weekly polls for 4-player Commander games and optim
 ## Features
 
 - **Automated Weekly Polls**: Automatically posts polls at configured times
-- **Discord Native Polls**: Uses Discord's built-in poll functionality
+- **Discord Native Polls**: Uses Discord's built-in poll functionality with configurable duration
 - **Smart Pod Optimization**: Maximizes number of players who get to play at least once
 - **Multi-day Support**: Players can vote for multiple days
 - **Conflict Resolution**: Detects when a player's choice is needed for optimal pod formation
-- **Scheduled Cutoff**: Automatically calculates and announces pods at a configured time
+- **Automatic Pod Calculation**: Automatically calculates and posts optimal pods when poll ends
 
 ## Setup
 
@@ -74,7 +74,7 @@ pip install -r requirements.txt
 3. (Optional) Edit `config.json` to customize:
    - Poll days (default: Monday, Tuesday, Wednesday)
    - Poll schedule (when polls are posted)
-   - Cutoff schedule (when pods are calculated)
+   - Poll duration in hours (how long polls stay open)
    - Timezone settings
    - Poll question text
 
@@ -91,16 +91,16 @@ The `config.json` file contains scheduling and poll settings:
     "minute": 0,
     "timezone": "UTC"
   },
-  "cutoff_schedule": {
-    "day_of_week": "sat",
-    "hour": 12,
-    "minute": 0,
-    "timezone": "UTC"
-  },
   "poll_question": "Which days are you available for Commander this week?",
-  "poll_duration_hours": 168
+  "poll_duration_hours": 24
 }
 ```
+
+**Settings:**
+- `poll_days`: Days to include as options in the poll
+- `poll_schedule`: When to automatically post polls (day, hour, minute, timezone)
+- `poll_question`: The question displayed in the poll
+- `poll_duration_hours`: How long the poll stays open (pods calculated automatically when it closes)
 
 ### Schedule Format
 
@@ -109,13 +109,25 @@ The `config.json` file contains scheduling and poll settings:
 - **minute**: 0-59
 - **timezone**: Any valid timezone (e.g., `America/New_York`, `Europe/London`, `US/Pacific`)
 
-### Example Schedules
+### Example Configuration
 
-**Poll posted Sunday at 6 PM, cutoff Saturday at noon:**
+**Poll posted Sunday at 6 PM, runs for 24 hours:**
 ```json
-"poll_schedule": {"day_of_week": "sun", "hour": 18, "minute": 0, "timezone": "America/New_York"},
-"cutoff_schedule": {"day_of_week": "sat", "hour": 12, "minute": 0, "timezone": "America/New_York"}
+{
+  "poll_schedule": {"day_of_week": "sun", "hour": 18, "minute": 0, "timezone": "America/New_York"},
+  "poll_duration_hours": 24
+}
 ```
+Pods will be automatically calculated Monday at 6 PM (24 hours later).
+
+**Poll posted Friday evening, runs for a week:**
+```json
+{
+  "poll_schedule": {"day_of_week": "fri", "hour": 20, "minute": 0, "timezone": "US/Pacific"},
+  "poll_duration_hours": 168
+}
+```
+Pods will be automatically calculated the following Friday at 8 PM.
 
 ## Running the Bot
 
@@ -128,7 +140,7 @@ The bot will:
 1. Connect to Discord
 2. Start the scheduler
 3. Automatically create polls at the configured time
-4. Calculate and announce pods at the cutoff time
+4. Automatically calculate and announce pods when each poll ends
 
 ## Manual Commands
 
@@ -145,11 +157,11 @@ The bot supports admin-only commands for testing and manual control:
 
 1. Bot posts a poll with configured days (Mon/Tue/Wed by default)
 2. Players vote for all days they're available (multi-select)
-3. Poll stays open until cutoff time
+3. Poll stays open for the configured duration (24 hours by default)
 
 ### Pod Optimization
 
-When the cutoff time arrives, the bot:
+When the poll ends, the bot automatically:
 
 1. Collects all votes from the poll
 2. Runs an optimization algorithm to:

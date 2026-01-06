@@ -114,7 +114,41 @@ async def create_poll(channel: discord.TextChannel) -> discord.Message:
     active_poll_id = message.id
     print(f'Poll created with ID: {active_poll_id}')
 
+    # Schedule automatic pod calculation when poll ends
+    asyncio.create_task(schedule_poll_completion(message.id, channel, duration_hours))
+
     return message
+
+
+async def schedule_poll_completion(poll_message_id: int, channel: discord.TextChannel, duration_hours: int):
+    """
+    Schedule automatic pod calculation when poll completes.
+
+    Args:
+        poll_message_id: ID of the poll message
+        channel: Channel containing the poll
+        duration_hours: How long the poll lasts
+    """
+    # Wait for the poll to complete
+    wait_seconds = duration_hours * 3600
+    print(f'Scheduled pod calculation in {duration_hours} hours (poll ID: {poll_message_id})')
+
+    await asyncio.sleep(wait_seconds)
+
+    # Poll has ended, calculate pods
+    print(f'Poll {poll_message_id} completed, calculating pods...')
+    try:
+        message = await channel.fetch_message(poll_message_id)
+        if message.poll:
+            await channel.send("**Poll has ended! Calculating optimal pods...**")
+            await process_poll_results(message.poll, channel)
+        else:
+            await channel.send("Error: Could not find poll data.")
+    except discord.NotFound:
+        print(f'Poll message {poll_message_id} not found')
+    except Exception as e:
+        print(f'Error processing poll completion: {e}')
+        await channel.send(f"Error calculating pods: {e}")
 
 
 async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel):
@@ -163,30 +197,6 @@ async def scheduled_poll_creation(channel: discord.TextChannel):
     """Called by scheduler to create a poll."""
     print('Creating scheduled poll...')
     await create_poll(channel)
-
-
-async def scheduled_cutoff(channel: discord.TextChannel):
-    """Called by scheduler when poll cutoff time is reached."""
-    global active_poll_id
-
-    print('Poll cutoff reached, calculating pods...')
-
-    if not active_poll_id:
-        await channel.send("No active poll to process.")
-        return
-
-    try:
-        message = await channel.fetch_message(active_poll_id)
-        if message.poll:
-            await process_poll_results(message.poll, channel)
-            active_poll_id = None  # Reset after processing
-        else:
-            await channel.send("Poll message found but contains no poll data.")
-    except discord.NotFound:
-        await channel.send("Poll message not found.")
-    except Exception as e:
-        await channel.send(f"Error processing poll: {e}")
-        print(f'Error in scheduled cutoff: {e}')
 
 
 @bot.event

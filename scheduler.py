@@ -1,5 +1,5 @@
 """
-Scheduler for automated poll creation and cutoff handling.
+Scheduler for automated poll creation.
 """
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -10,7 +10,7 @@ import pytz
 
 
 class PollScheduler:
-    """Manages scheduled poll creation and cutoff processing."""
+    """Manages scheduled poll creation."""
 
     def __init__(self, bot, channel: discord.TextChannel, config: Dict[str, Any]):
         """
@@ -27,9 +27,8 @@ class PollScheduler:
         self.scheduler = AsyncIOScheduler()
 
         # Import here to avoid circular dependency
-        from bot import scheduled_poll_creation, scheduled_cutoff
+        from bot import scheduled_poll_creation
         self.poll_creation_func = scheduled_poll_creation
-        self.cutoff_func = scheduled_cutoff
 
     def start(self):
         """Start the scheduler with configured jobs."""
@@ -53,37 +52,13 @@ class PollScheduler:
             replace_existing=True
         )
 
-        # Parse cutoff schedule
-        cutoff_schedule = self.config['cutoff_schedule']
-        cutoff_timezone = pytz.timezone(cutoff_schedule.get('timezone', 'UTC'))
-
-        # Add cutoff job
-        cutoff_trigger = CronTrigger(
-            day_of_week=cutoff_schedule['day_of_week'],
-            hour=cutoff_schedule['hour'],
-            minute=cutoff_schedule['minute'],
-            timezone=cutoff_timezone
-        )
-
-        self.scheduler.add_job(
-            self._cutoff_job,
-            trigger=cutoff_trigger,
-            id='poll_cutoff',
-            name='Poll Cutoff and Pod Calculation',
-            replace_existing=True
-        )
-
         self.scheduler.start()
         print(f'Scheduler started with poll creation on {poll_schedule["day_of_week"]} at {poll_schedule["hour"]:02d}:{poll_schedule["minute"]:02d} {timezone}')
-        print(f'Cutoff scheduled for {cutoff_schedule["day_of_week"]} at {cutoff_schedule["hour"]:02d}:{cutoff_schedule["minute"]:02d} {cutoff_timezone}')
+        print(f'Use !calculatepods to manually calculate pods from poll results')
 
     async def _create_poll_job(self):
         """Job wrapper for poll creation."""
         await self.poll_creation_func(self.channel)
-
-    async def _cutoff_job(self):
-        """Job wrapper for cutoff processing."""
-        await self.cutoff_func(self.channel)
 
     def stop(self):
         """Stop the scheduler."""
