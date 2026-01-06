@@ -11,6 +11,13 @@ A Discord bot that automates weekly polls for 4-player Commander games and optim
 - **Conflict Resolution**: Detects when a player's choice is needed for optimal pod formation
 - **Automatic Pod Calculation**: Automatically calculates and posts optimal pods when poll ends
 
+## Quick Start
+
+**Two deployment options available:**
+
+- **Docker (Recommended for servers)**: See [docs/DOCKER.md](docs/DOCKER.md) for containerized deployment
+- **Local Python**: See [docs/QUICKSTART.md](docs/QUICKSTART.md) for traditional setup
+
 ## Setup
 
 ### 1. Create a Discord Bot
@@ -154,6 +161,16 @@ Pods will be automatically calculated Monday at 6 PM (24 hours later).
 Pods will be automatically calculated the following Friday at 8 PM.
 
 ## Running the Bot
+
+### Docker (Recommended)
+
+```bash
+docker-compose up -d
+```
+
+See [docs/DOCKER.md](docs/DOCKER.md) for full Docker deployment guide.
+
+### Local Python
 
 ```bash
 # Make sure virtual environment is activated

@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  commander-pod-bot:
+    build: .
+    image: commander-pod-bot:latest
+    container_name: commander-pod-bot
+    restart: unless-stopped
+
+    # Mount config directory to provide .env file
+    volumes:
+      - ./config:/app/config:ro
+
+    # Environment variables (optional - can also use .env file)
+    # environment:
+    #   - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+    #   - POLL_CHANNEL_ID=${POLL_CHANNEL_ID}
+
+    # Resource limits (optional but recommended)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
