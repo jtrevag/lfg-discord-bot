@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   commander-pod-bot:
@@ -11,20 +11,8 @@ services:
     volumes:
       - ./config:/app/config:ro
 
-    # Environment variables (optional - can also use .env file)
-    # environment:
-    #   - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
-    #   - POLL_CHANNEL_ID=${POLL_CHANNEL_ID}
-
-    # Resource limits (optional but recommended)
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
-        reservations:
-          cpus: '0.1'
-          memory: 128M
+    env_file:
+      - config/.env
 
     # Logging configuration
     logging:
