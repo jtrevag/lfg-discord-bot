@@ -106,8 +106,23 @@ def initialize_database(db_path='data/lfg_bot.db'):
     Returns:
         Database instance
     """
+    # Ensure absolute path
+    if not os.path.isabs(db_path):
+        db_path = os.path.abspath(db_path)
+
     # Create data directory if it doesn't exist
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    db_dir = os.path.dirname(db_path)
+    try:
+        os.makedirs(db_dir, exist_ok=True)
+        # Test write permissions
+        test_file = os.path.join(db_dir, '.write_test')
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+    except (OSError, PermissionError) as e:
+        print(f'ERROR: Cannot write to database directory {db_dir}: {e}')
+        print(f'Please ensure the directory exists and has write permissions.')
+        raise
 
     # Initialize database
     db.init(db_path)
