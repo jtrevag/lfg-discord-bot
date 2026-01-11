@@ -13,7 +13,7 @@ class PollsCog(commands.Cog, name="Polls"):
         """Initialize the cog."""
         self.bot = bot
 
-    @commands.command(name='ping')
+    @commands.command(name='lfgping')
     async def ping_command(self, ctx):
         """Check if the bot is online and responsive."""
         latency_ms = round(self.bot.latency * 1000)
