@@ -16,8 +16,10 @@ class PollsCog(commands.Cog, name="Polls"):
     @commands.command(name='lfgping')
     async def ping_command(self, ctx):
         """Check if the bot is online and responsive."""
+        from lfg_bot.bot import get_version
         latency_ms = round(self.bot.latency * 1000)
-        await ctx.send(f"🏓 Pong! Bot is online. Latency: {latency_ms}ms")
+        version = get_version()
+        await ctx.send(f"🏓 Pong! Bot is online.\nLatency: {latency_ms}ms\nVersion: {version}")
 
     @commands.command(name='createpoll')
     @commands.has_permissions(administrator=True)

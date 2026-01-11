@@ -9,9 +9,26 @@ from discord.ext import commands
 from typing import Dict, List
 from datetime import timedelta
 import asyncio
+import subprocess
 
 from lfg_bot.utils.pod_optimizer import optimize_pods, format_pod_results
 from lfg_bot.utils.scheduler import PollScheduler
+
+
+def get_version():
+    """Get the current version from git commit hash."""
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return 'unknown'
 
 
 def load_config():
@@ -47,7 +64,9 @@ def create_bot():
     @bot.event
     async def on_ready():
         """Called when bot is ready."""
+        version = get_version()
         print(f'{bot.user} has connected to Discord!')
+        print(f'Bot version: {version}')
         print(f'Bot is in {len(bot.guilds)} guild(s)')
 
         # Load cogs

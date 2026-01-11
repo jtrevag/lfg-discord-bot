@@ -10,6 +10,11 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Install git for version tracking
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -18,6 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY config/ ./config/
 COPY run.py .
+COPY .git/ ./.git/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 botuser && \
