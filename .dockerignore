@@ -26,7 +26,6 @@ ENV/
 Thumbs.db
 
 # Git
-.git/
 .gitignore
 
 # Testing
