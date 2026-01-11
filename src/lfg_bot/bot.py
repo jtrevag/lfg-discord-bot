@@ -83,7 +83,8 @@ def create_bot():
 
         # Load cogs
         await bot.load_extension('lfg_bot.cogs.polls')
-        print('Loaded cogs: polls')
+        await bot.load_extension('lfg_bot.cogs.games')
+        print('Loaded cogs: polls, games')
 
         # Start the scheduler
         channel = bot.get_channel(int(os.getenv('POLL_CHANNEL_ID')))
@@ -284,6 +285,9 @@ async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel,
 
     # Save to database
     from lfg_bot.utils.database import save_poll_and_pods
+    from lfg_bot.utils.game_ui import post_pods_with_buttons
+
+    poll_record = None
     try:
         # Get poll message ID from poll context (it's from a message)
         poll_message_id = str(poll.message.id) if hasattr(poll, 'message') else "unknown"
@@ -298,9 +302,16 @@ async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel,
         print(f'Warning: Failed to save pods to database: {e}')
         # Continue anyway - don't break existing functionality
 
-    # Format and send results
-    message = format_pod_results(result)
-    await channel.send(message)
+    # Post results with interactive buttons
+    await channel.send("**Poll has ended! Here are this week's pods:**\n")
+
+    if poll_record:
+        # Use new UI with buttons
+        await post_pods_with_buttons(channel, result, poll_record)
+    else:
+        # Fallback to text-only if database save failed
+        message = format_pod_results(result)
+        await channel.send(message)
 
     print(f'Pods calculated: {len(result.pods)} pods formed')
     print(f'Players with games: {len(result.players_with_games)}')
