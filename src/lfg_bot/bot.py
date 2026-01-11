@@ -78,6 +78,9 @@ def create_bot():
         verify_database(bot.db)
         print('Database initialized and verified')
 
+        # Recover any incomplete polls that finished while bot was offline
+        await recover_incomplete_polls(bot)
+
         # Load cogs
         await bot.load_extension('lfg_bot.cogs.polls')
         print('Loaded cogs: polls')
@@ -179,6 +182,66 @@ async def schedule_poll_completion(poll_message_id: int, channel: discord.TextCh
     except Exception as e:
         print(f'Error processing poll completion: {e}')
         await channel.send(f"Error calculating pods: {e}")
+
+
+async def recover_incomplete_polls(bot):
+    """
+    Check for polls that completed while bot was offline and process them.
+
+    Args:
+        bot: Bot instance
+    """
+    from lfg_bot.utils.database import get_polls_needing_processing
+
+    print('Checking for incomplete polls...')
+
+    # Get polls that might need processing (created in last 7 days, no pods)
+    polls_to_check = get_polls_needing_processing(days_back=7)
+
+    if not polls_to_check:
+        print('No incomplete polls found.')
+        return
+
+    print(f'Found {len(polls_to_check)} poll(s) that might need processing')
+
+    processed_count = 0
+
+    for poll_record in polls_to_check:
+        try:
+            # Get the channel from the poll's league
+            channel = bot.get_channel(int(os.getenv('POLL_CHANNEL_ID')))
+            if not channel:
+                print(f'Warning: Could not find channel for poll {poll_record.discord_message_id}')
+                continue
+
+            # Try to fetch the poll message
+            try:
+                message = await channel.fetch_message(int(poll_record.discord_message_id))
+            except discord.NotFound:
+                print(f'Poll message {poll_record.discord_message_id} not found, skipping')
+                continue
+
+            # Check if message has a poll
+            if not message.poll:
+                print(f'Message {poll_record.discord_message_id} has no poll, skipping')
+                continue
+
+            # Check if poll has ended (is_finalised indicates poll is closed)
+            if message.poll.is_finalised():
+                print(f'Processing completed poll: {poll_record.discord_message_id}')
+                await process_poll_results(message.poll, channel, bot)
+                processed_count += 1
+            else:
+                print(f'Poll {poll_record.discord_message_id} is still active, skipping')
+
+        except Exception as e:
+            print(f'Error processing poll {poll_record.discord_message_id}: {e}')
+            continue
+
+    if processed_count > 0:
+        print(f'✅ Successfully processed {processed_count} incomplete poll(s)')
+    else:
+        print('No polls needed processing.')
 
 
 async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel, bot=None):

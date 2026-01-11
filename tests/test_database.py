@@ -15,7 +15,8 @@ from lfg_bot.utils.database import (
     initialize_database, verify_database, get_active_league,
     get_real_name, get_discord_id, format_player_name,
     save_poll_and_pods, record_game_result, update_player_stats,
-    get_leaderboard, get_head_to_head, get_recent_games, create_new_league
+    get_leaderboard, get_head_to_head, get_recent_games, create_new_league,
+    get_polls_needing_processing
 )
 
 
@@ -400,6 +401,44 @@ class TestDatabaseHelpers(unittest.TestCase):
         old_league_updated = League.get_by_id(old_league.id)
         assert old_league_updated.is_active == False
         assert old_league_updated.end_date is not None
+
+    def test_get_polls_needing_processing(self):
+        """Test finding polls that need processing."""
+        league = League.create(name="Test", start_date=date.today())
+
+        # Create poll with pods (already processed)
+        poll1 = Poll.create(
+            league=league,
+            discord_message_id="MSG1",
+            created_at=datetime.now() - timedelta(days=1)
+        )
+        Pod.create(
+            poll=poll1,
+            day_of_week="Monday",
+            player1_id="100", player2_id="200",
+            player3_id="300", player4_id="400"
+        )
+
+        # Create poll without pods (needs processing)
+        poll2 = Poll.create(
+            league=league,
+            discord_message_id="MSG2",
+            created_at=datetime.now() - timedelta(days=2)
+        )
+
+        # Create old poll without pods (too old, should be ignored)
+        poll3 = Poll.create(
+            league=league,
+            discord_message_id="MSG3",
+            created_at=datetime.now() - timedelta(days=10)
+        )
+
+        # Get polls needing processing (last 7 days)
+        needs_processing = get_polls_needing_processing(days_back=7)
+
+        # Should only return poll2 (recent, no pods)
+        assert len(needs_processing) == 1
+        assert needs_processing[0].discord_message_id == "MSG2"
 
 
 if __name__ == '__main__':

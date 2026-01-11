@@ -420,6 +420,33 @@ def get_recent_games(limit=5):
             .limit(limit))
 
 
+def get_polls_needing_processing(days_back=7):
+    """Get polls that might need processing (created recently but have no pods).
+
+    Args:
+        days_back: How many days back to check
+
+    Returns:
+        List of Poll objects that have no associated pods
+    """
+    cutoff_date = datetime.now() - timedelta(days=days_back)
+
+    # Get polls created recently
+    recent_polls = (Poll
+                    .select()
+                    .where(Poll.created_at >= cutoff_date)
+                    .order_by(Poll.created_at.desc()))
+
+    # Filter to only polls with no pods
+    polls_needing_processing = []
+    for poll in recent_polls:
+        pod_count = Pod.select().where(Pod.poll == poll).count()
+        if pod_count == 0:
+            polls_needing_processing.append(poll)
+
+    return polls_needing_processing
+
+
 def create_new_league(name, start_date):
     """Create a new league and archive the current one.
 
