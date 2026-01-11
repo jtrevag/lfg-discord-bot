@@ -60,6 +60,10 @@ def create_bot():
     bot.active_poll_id = None
     bot.poll_scheduler = None
 
+    # Initialize database
+    from lfg_bot.utils.database import initialize_database
+    bot.db = initialize_database()
+
     # Register event handlers
     @bot.event
     async def on_ready():
@@ -68,6 +72,11 @@ def create_bot():
         print(f'{bot.user} has connected to Discord!')
         print(f'Bot version: {version}')
         print(f'Bot is in {len(bot.guilds)} guild(s)')
+
+        # Verify database connectivity
+        from lfg_bot.utils.database import verify_database
+        verify_database(bot.db)
+        print('Database initialized and verified')
 
         # Load cogs
         await bot.load_extension('lfg_bot.cogs.polls')
@@ -172,14 +181,19 @@ async def schedule_poll_completion(poll_message_id: int, channel: discord.TextCh
         await channel.send(f"Error calculating pods: {e}")
 
 
-async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel):
+async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel, bot=None):
     """
     Process poll results and calculate optimal pods.
 
     Args:
         poll: The Discord poll object
         channel: Channel to send results to
+        bot: Bot instance (optional, will fetch from channel if not provided)
     """
+    # Get bot instance if not provided
+    if bot is None:
+        bot = channel.guild.me._state._get_client()
+
     # Extract votes from poll
     availability: Dict[str, List[str]] = {}
 
@@ -204,6 +218,22 @@ async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel)
 
     # Optimize pods
     result = optimize_pods(availability)
+
+    # Save to database
+    from lfg_bot.utils.database import save_poll_and_pods
+    try:
+        # Get poll message ID from poll context (it's from a message)
+        poll_message_id = str(poll.message.id) if hasattr(poll, 'message') else "unknown"
+        poll_record = save_poll_and_pods(
+            bot=bot,
+            discord_message_id=poll_message_id,
+            result=result,
+            poll_days=bot.config.get('poll_days', [])
+        )
+        print(f'Saved {len(result.pods)} pods to database (poll ID: {poll_record.id})')
+    except Exception as e:
+        print(f'Warning: Failed to save pods to database: {e}')
+        # Continue anyway - don't break existing functionality
 
     # Format and send results
     message = format_pod_results(result)

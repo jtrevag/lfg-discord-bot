@@ -52,3 +52,11 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Database
+data/
+*.db
+*.db-journal
+
+# Google Credentials
+config/google-credentials.json

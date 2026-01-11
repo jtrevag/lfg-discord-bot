@@ -7,5 +7,19 @@
     "timezone": "UTC"
   },
   "poll_question": "Which days are you available for Commander this week?",
-  "poll_duration_hours": 24
+  "poll_duration_hours": 24,
+
+  "database": {
+    "path": "data/lfg_bot.db"
+  },
+
+  "leagues": {
+    "auto_create_season": true,
+    "season_pattern": "Season {year}"
+  },
+
+  "statistics": {
+    "min_games_for_leaderboard": 3,
+    "leaderboard_size": 10
+  }
 }

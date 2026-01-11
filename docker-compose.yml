@@ -5,9 +5,10 @@ services:
     container_name: commander-pod-bot
     restart: unless-stopped
 
-    # Mount config directory to provide .env file
+    # Mount config directory to provide .env file and data directory for database
     volumes:
       - ./config:/app/config:ro
+      - ./data:/app/data  # Persist database
 
     env_file:
       - config/.env
