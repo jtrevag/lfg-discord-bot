@@ -12,7 +12,7 @@ from datetime import datetime
 
 async def post_pods_with_buttons(channel: discord.TextChannel, result, poll_record):
     """
-    Post pod assignments with interactive 'Game Completed' buttons.
+    Post pod assignments without interactive buttons (buttons disabled for now).
 
     Args:
         channel: Discord channel to post in
@@ -53,22 +53,8 @@ async def post_pods_with_buttons(channel: discord.TextChannel, result, poll_reco
                 pod_text = f"Pod {idx}: {', '.join(players)}\n"
                 day_message += pod_text
 
-                # Create button for this pod
-                button = discord.ui.Button(
-                    label="Game Completed ✅",
-                    style=discord.ButtonStyle.green,
-                    custom_id=f"game_complete_{pod.id}"
-                )
-
-                view = discord.ui.View(timeout=None)  # No timeout for game reporting
-                view.add_item(button)
-
-                # Post pod with button
-                msg = await channel.send(pod_text.strip(), view=view)
-
-                # Save message ID to pod record
-                pod.discord_message_id = str(msg.id)
-                pod.save()
+        # Post all pods for this day in a single message
+        await channel.send(day_message.strip())
 
     # Post players without games (if any)
     if result.players_without_games:

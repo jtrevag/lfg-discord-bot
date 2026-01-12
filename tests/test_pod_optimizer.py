@@ -161,6 +161,48 @@ class TestPodOptimizer(unittest.TestCase):
             self.assertIn('day1', result.choice_required)
             self.assertIn('day2', result.choice_required)
 
+    def test_complete_pod_with_double_play_opportunity(self):
+        """
+        Test scenario where a complete 4-player pod exists on one day,
+        and a flexible player could play twice to enable a second pod.
+
+        Real scenario from user:
+        - Monday: 4 players (including Patrick and Eli)
+        - Tuesday: 3 players (can't form pod)
+        - Wednesday: 5 players (including Patrick and Eli)
+
+        Expected: Monday pod forms, Wednesday needs Patrick or Eli to play twice.
+        """
+        availability = {
+            'n8': ['Monday'],
+            'chris': ['Monday'],
+            'patrick': ['Monday', 'Tuesday', 'Wednesday'],
+            'eli': ['Monday', 'Wednesday'],
+            'chad': ['Tuesday', 'Wednesday'],
+            'matt': ['Tuesday', 'Wednesday'],
+            'trevor': ['Wednesday']
+        }
+
+        result = optimize_pods(availability)
+
+        # Should form 2 pods total
+        self.assertEqual(len(result.pods), 2,
+            "Should form 2 pods: Monday (4 players) and Wednesday (4 players with 1 playing twice)")
+
+        # Monday should be one of the pods (complete with exactly 4 unique players)
+        days = [pod.day for pod in result.pods]
+        self.assertIn('Monday', days, "Monday should form a pod (has exactly 4 players)")
+        self.assertIn('Wednesday', days, "Wednesday should form a pod (with flexible player playing twice)")
+
+        # 7 unique players should get games (all except Matt who's only on Tue/Wed)
+        # Actually, all 7 players should get games if we allow double-play
+        self.assertEqual(len(result.players_with_games), 7,
+            "All 7 players should get games (Patrick or Eli plays twice)")
+
+        # No one should be left out
+        self.assertEqual(len(result.players_without_games), 0,
+            "No players should be left out when double-play is possible")
+
 
 class TestFormatResults(unittest.TestCase):
     """Test cases for result formatting."""

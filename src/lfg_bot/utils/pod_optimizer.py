@@ -123,8 +123,9 @@ def _find_best_assignment(
     Strategy:
     1. Detect critical flexible players (must be assigned to specific day)
     2. Pre-assign critical players to their required days
-    3. Prioritize remaining days by unique player count
+    3. Prioritize "complete" days (exactly 4, 8, 12... players) first
     4. Form pods greedily on sorted days
+    5. Allow flexible players to play twice if it enables additional pods
     """
     pods = []
     assigned_players = set()
@@ -151,10 +152,21 @@ def _find_best_assignment(
     # Mark critical players as reserved (can't be used on other days)
     reserved_players = set(critical_assignments.keys())
 
-    # STEP 2: Sort days by unique player count first, then total count (both descending)
+    # STEP 2: Sort days prioritizing complete pods
+    # Sort by:
+    # 1. Whether day has exact multiple of 4 players (complete pods)
+    # 2. Unique player count (players only available that day)
+    # 3. Total player count
+    def day_priority(day_info):
+        day, players = day_info
+        player_count = len(players)
+        unique_count = _count_unique_players(day, day_to_players, availability)
+        is_complete = (player_count % 4 == 0 and player_count > 0)
+        return (is_complete, unique_count, player_count)
+
     sorted_days = sorted(
         day_to_players.items(),
-        key=lambda x: (_count_unique_players(x[0], day_to_players, availability), len(x[1])),
+        key=day_priority,
         reverse=True
     )
 
@@ -184,6 +196,29 @@ def _find_best_assignment(
                 p for p in available
                 if p not in assigned_players and (p not in reserved_players or p in critical_for_day)
             ]
+
+    # STEP 4: Second pass - allow double-play for flexible players to form additional pods
+    # Check each day again to see if we're 1 player short of forming a pod
+    for day, available in sorted_days:
+        unassigned_available = [p for p in available if p not in assigned_players]
+
+        # If we have 3 unassigned players, check if a flexible player can play twice
+        if len(unassigned_available) == 3:
+            # Find flexible players who are already assigned but available this day
+            flexible_candidates = [
+                p for p in available
+                if p in assigned_players and len(availability.get(p, [])) > 1
+            ]
+
+            if flexible_candidates:
+                # Use the first flexible player to complete the pod
+                double_play_player = flexible_candidates[0]
+                pod_players = unassigned_available + [double_play_player]
+                pods.append(PodAssignment(day=day, players=pod_players))
+
+                # Update assigned players (add the 3 new players, double-play already counted)
+                for player in unassigned_available:
+                    assigned_players.add(player)
 
     players_without_games = all_players - assigned_players
 

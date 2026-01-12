@@ -211,7 +211,7 @@ def save_poll_and_pods(bot, discord_message_id, result, poll_days):
         poll_days: List of days from config
 
     Returns:
-        Poll object that was created
+        Poll object that was created or updated
     """
     import json
 
@@ -220,32 +220,41 @@ def save_poll_and_pods(bot, discord_message_id, result, poll_days):
     if not league:
         raise ValueError("No active league found")
 
-    # Create poll record
-    poll = Poll.create(
-        league=league,
-        discord_message_id=discord_message_id,
-        created_at=datetime.now(),
-        completed_at=datetime.now(),
-        poll_question=bot.config.get('poll_question', 'Weekly availability poll'),
-        poll_days=json.dumps(poll_days)
+    # Get or create poll record
+    poll, created = Poll.get_or_create(
+        discord_message_id=str(discord_message_id),
+        defaults={
+            'league': league,
+            'created_at': datetime.now(),
+            'completed_at': datetime.now(),
+            'poll_question': bot.config.get('poll_question', 'Weekly availability poll'),
+            'poll_days': json.dumps(poll_days)
+        }
     )
 
-    # Create pod records
-    for pod_assignment in result.pods:
-        Pod.create(
-            poll=poll,
-            day_of_week=pod_assignment.day,
-            scheduled_date=None,  # Will be set later if needed
-            player1_id=pod_assignment.players[0],
-            player2_id=pod_assignment.players[1],
-            player3_id=pod_assignment.players[2],
-            player4_id=pod_assignment.players[3],
-            status='scheduled'
-        )
+    # If poll already existed, update the completed_at timestamp
+    if not created:
+        poll.completed_at = datetime.now()
+        poll.save()
 
-        # Auto-create player records if they don't exist
-        for player_id in pod_assignment.players:
-            Player.get_or_create(discord_user_id=player_id)
+    # Create pod records (only if they don't already exist)
+    existing_pods = Pod.select().where(Pod.poll == poll).count()
+    if existing_pods == 0:
+        for pod_assignment in result.pods:
+            Pod.create(
+                poll=poll,
+                day_of_week=pod_assignment.day,
+                scheduled_date=None,  # Will be set later if needed
+                player1_id=pod_assignment.players[0],
+                player2_id=pod_assignment.players[1],
+                player3_id=pod_assignment.players[2],
+                player4_id=pod_assignment.players[3],
+                status='scheduled'
+            )
+
+            # Auto-create player records if they don't exist
+            for player_id in pod_assignment.players:
+                Player.get_or_create(discord_user_id=player_id)
 
     return poll
 
@@ -433,6 +442,24 @@ def get_recent_games(limit=5):
             .select()
             .order_by(GameResult.reported_at.desc())
             .limit(limit))
+
+
+def get_most_recent_poll(days_back=7):
+    """Get the most recent poll (within the last N days).
+
+    Args:
+        days_back: How many days back to check
+
+    Returns:
+        Most recent Poll object, or None if no polls found
+    """
+    cutoff_date = datetime.now() - timedelta(days=days_back)
+
+    return (Poll
+            .select()
+            .where(Poll.created_at >= cutoff_date)
+            .order_by(Poll.created_at.desc())
+            .first())
 
 
 def get_polls_needing_processing(days_back=7):

@@ -148,6 +148,26 @@ async def create_poll(channel: discord.TextChannel, config: dict) -> discord.Mes
 
     print(f'Poll created with ID: {message.id}')
 
+    # Save poll record to database immediately
+    try:
+        from lfg_bot.utils.database import get_active_league, Poll
+        import json
+
+        league = get_active_league()
+        if league:
+            Poll.create(
+                league=league,
+                discord_message_id=str(message.id),
+                created_at=datetime.now(),
+                completed_at=None,  # Will be set when poll completes
+                poll_question=config['poll_question'],
+                poll_days=json.dumps(config['poll_days'])
+            )
+            print(f'Poll record saved to database (message ID: {message.id})')
+    except Exception as e:
+        print(f'Warning: Failed to save poll to database: {e}')
+        # Continue anyway - don't break poll creation
+
     # Schedule automatic pod calculation when poll ends
     asyncio.create_task(schedule_poll_completion(message.id, channel, duration_hours))
 
