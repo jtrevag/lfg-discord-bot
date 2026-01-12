@@ -12,7 +12,7 @@ from datetime import datetime
 
 async def post_pods_with_buttons(channel: discord.TextChannel, result, poll_record):
     """
-    Post pod assignments without interactive buttons (buttons disabled for now).
+    Post pod assignments with interactive buttons for double-play scenarios.
 
     Args:
         channel: Discord channel to post in
@@ -56,11 +56,118 @@ async def post_pods_with_buttons(channel: discord.TextChannel, result, poll_reco
         # Post all pods for this day in a single message
         await channel.send(day_message.strip())
 
+    # Handle double-play volunteer scenario
+    if result.choice_required and result.choice_required.get('scenario') == 'double_play_needed':
+        choice_info = result.choice_required
+
+        # Create message with volunteer buttons
+        message_text = (
+            f"\n---\n"
+            f"**Need 1 more player for {choice_info['day']}!**\n\n"
+            f"Waiting to play: {', '.join([format_player_name(p) for p in choice_info['waiting_players']])}\n\n"
+            f"Can any of these players join for a 2nd game?\n"
+            f"{', '.join([format_player_name(p) for p in choice_info['flexible_candidates']])}\n\n"
+            f"Click a button below if you can play twice! 🎲"
+        )
+
+        # Create view with volunteer buttons
+        view = DoublePlayVolunteerView(
+            poll_record=poll_record,
+            day=choice_info['day'],
+            waiting_players=choice_info['waiting_players'],
+            flexible_candidates=choice_info['flexible_candidates']
+        )
+
+        await channel.send(message_text, view=view)
+
     # Post players without games (if any)
-    if result.players_without_games:
+    elif result.players_without_games:
         from lfg_bot.utils.database import format_player_name
         players_str = ", ".join([format_player_name(pid) for pid in result.players_without_games])
         await channel.send(f"\n**Players without games this week:**\n{players_str}")
+
+
+class DoublePlayVolunteerView(ui.View):
+    """View with buttons for players to volunteer for double-play."""
+
+    def __init__(self, poll_record, day, waiting_players, flexible_candidates):
+        super().__init__(timeout=None)  # No timeout - buttons stay active
+        self.poll_record = poll_record
+        self.day = day
+        self.waiting_players = waiting_players
+        self.flexible_candidates = flexible_candidates
+
+        # Create a button for each flexible candidate
+        from lfg_bot.utils.database import get_real_name
+        for player_id in flexible_candidates:
+            real_name = get_real_name(player_id)
+            button_label = f"{real_name} can play!" if real_name else f"I can play!"
+
+            button = discord.ui.Button(
+                label=button_label,
+                style=discord.ButtonStyle.green,
+                custom_id=f"volunteer_{player_id}_{day}"
+            )
+
+            # Create callback for this specific player
+            async def make_callback(volunteer_id):
+                async def callback(interaction: discord.Interaction):
+                    await self.handle_volunteer(interaction, volunteer_id)
+                return callback
+
+            button.callback = make_callback(player_id)
+            self.add_item(button)
+
+    async def handle_volunteer(self, interaction: discord.Interaction, volunteer_id: str):
+        """Handle when a player volunteers to play twice."""
+        from lfg_bot.utils.database import Pod, format_player_name
+
+        # Verify the person clicking is the volunteer
+        if str(interaction.user.id) != volunteer_id:
+            await interaction.response.send_message(
+                "Only the volunteer can click their own button!",
+                ephemeral=True
+            )
+            return
+
+        # Create the additional pod in database
+        try:
+            pod = Pod.create(
+                poll=self.poll_record,
+                day_of_week=self.day,
+                scheduled_date=None,
+                player1_id=self.waiting_players[0],
+                player2_id=self.waiting_players[1],
+                player3_id=self.waiting_players[2],
+                player4_id=volunteer_id,  # The double-play volunteer
+                status='scheduled'
+            )
+
+            # Format the new pod
+            players = [
+                format_player_name(self.waiting_players[0]),
+                format_player_name(self.waiting_players[1]),
+                format_player_name(self.waiting_players[2]),
+                format_player_name(volunteer_id)
+            ]
+
+            # Update the message to show the completed pod
+            new_content = (
+                f"✅ **{self.day} pod confirmed!**\n"
+                f"Pod: {', '.join(players)}\n\n"
+                f"_Thanks {format_player_name(volunteer_id)} for playing twice!_ 🎲"
+            )
+
+            await interaction.response.edit_message(
+                content=new_content,
+                view=None  # Remove buttons
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Error creating pod: {str(e)}",
+                ephemeral=True
+            )
 
 
 class WinnerSelectionModal(ui.Modal, title="Report Game Result"):

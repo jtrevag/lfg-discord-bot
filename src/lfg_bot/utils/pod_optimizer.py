@@ -197,8 +197,10 @@ def _find_best_assignment(
                 if p not in assigned_players and (p not in reserved_players or p in critical_for_day)
             ]
 
-    # STEP 4: Second pass - allow double-play for flexible players to form additional pods
-    # Check each day again to see if we're 1 player short of forming a pod
+    # STEP 4: Second pass - detect double-play opportunities
+    # Check each day to see if we're 1 player short of forming a pod
+    double_play_opportunity = None
+
     for day, available in sorted_days:
         unassigned_available = [p for p in available if p not in assigned_players]
 
@@ -211,22 +213,35 @@ def _find_best_assignment(
             ]
 
             if flexible_candidates:
-                # Use the first flexible player to complete the pod
-                double_play_player = flexible_candidates[0]
-                pod_players = unassigned_available + [double_play_player]
-                pods.append(PodAssignment(day=day, players=pod_players))
-
-                # Update assigned players (add the 3 new players, double-play already counted)
-                for player in unassigned_available:
-                    assigned_players.add(player)
+                # Create a choice scenario asking which player can volunteer
+                double_play_opportunity = {
+                    'scenario': 'double_play_needed',
+                    'day': day,
+                    'waiting_players': unassigned_available,
+                    'flexible_candidates': flexible_candidates,
+                    'message': (
+                        f"**Need 1 more player for {day}!**\n\n"
+                        f"Waiting to play: {', '.join([f'<@{p}>' for p in unassigned_available])}\n\n"
+                        f"Can any of these players join for a 2nd game?\n"
+                        f"{', '.join([f'<@{p}>' for p in flexible_candidates])}\n\n"
+                        f"React or reply if you can play twice this week! 🎲"
+                    )
+                }
+                break  # Only show one opportunity at a time
 
     players_without_games = all_players - assigned_players
 
-    return OptimizationResult(
+    result = OptimizationResult(
         pods=pods,
         players_with_games=assigned_players,
         players_without_games=players_without_games
     )
+
+    # Set choice_required if there's a double-play opportunity
+    if double_play_opportunity:
+        result.choice_required = double_play_opportunity
+
+    return result
 
 
 def _detect_choice_scenario(
@@ -284,13 +299,38 @@ def format_pod_results(result: OptimizationResult) -> str:
     lines = ["**Pod Assignments for This Week**\n"]
 
     if result.choice_required:
-        lines.append(f"**PLAYER CHOICE REQUIRED**")
-        lines.append(result.choice_required["message"])
-        lines.append(f"\n**Potential Pods:**")
-        lines.append(f"**{result.choice_required['day1']}:** {', '.join([f'<@{p}>' for p in result.choice_required['pod1']])}")
-        lines.append(f"**{result.choice_required['day2']}:** {', '.join([f'<@{p}>' for p in result.choice_required['pod2']])}")
-        lines.append("\nPlease react or respond with your choice!")
-        return "\n".join(lines)
+        scenario_type = result.choice_required.get("scenario", "unknown")
+
+        if scenario_type == "double_play_needed":
+            # Show completed pods first
+            if result.pods:
+                pods_by_day = {}
+                for pod in result.pods:
+                    if pod.day not in pods_by_day:
+                        pods_by_day[pod.day] = []
+                    pods_by_day[pod.day].append(pod)
+
+                for day in sorted(pods_by_day.keys()):
+                    lines.append(f"**{day}:**")
+                    for i, pod in enumerate(pods_by_day[day], 1):
+                        player_mentions = ", ".join([f"<@{p}>" for p in pod.players])
+                        lines.append(f"  Pod {i}: {player_mentions}")
+                    lines.append("")
+
+            # Then show the choice prompt
+            lines.append("---")
+            lines.append(result.choice_required["message"])
+            return "\n".join(lines)
+
+        elif scenario_type == "critical_for_both":
+            # Original choice scenario formatting
+            lines.append(f"**PLAYER CHOICE REQUIRED**")
+            lines.append(result.choice_required["message"])
+            lines.append(f"\n**Potential Pods:**")
+            lines.append(f"**{result.choice_required['day1']}:** {', '.join([f'<@{p}>' for p in result.choice_required['pod1']])}")
+            lines.append(f"**{result.choice_required['day2']}:** {', '.join([f'<@{p}>' for p in result.choice_required['pod2']])}")
+            lines.append("\nPlease react or respond with your choice!")
+            return "\n".join(lines)
 
     if not result.pods:
         lines.append("No pods could be formed this week. Need at least 4 players for one day.")
