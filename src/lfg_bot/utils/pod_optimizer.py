@@ -79,6 +79,7 @@ def _detect_critical_flexible_players(
     A flexible player (available 2+ days) is "critical" for Day A if:
     - Day A would have < 4 players without them
     - At least one other day they're available on would still have >= 4 players without them
+    - Reserving them wouldn't reduce the number of complete pods on their other days
 
     Returns:
         Dict mapping player_id -> day they must be assigned to
@@ -92,6 +93,9 @@ def _detect_critical_flexible_players(
         if len(days) >= 2
     }
 
+    # Track how many players we're reserving away from each day
+    reserved_from_day: Dict[str, int] = {}
+
     for player, player_days in flexible_players.items():
         # Count how many players each day would have WITHOUT this player
         days_remaining = {}
@@ -104,10 +108,31 @@ def _detect_critical_flexible_players(
         days_needing_player = [day for day, count in days_remaining.items() if count < 4]
         days_not_needing_player = [day for day, count in days_remaining.items() if count >= 4]
 
-        # If player is critical for one day but not others, assign them there
+        # If player is critical for one day but not others, consider assigning them there
         if len(days_needing_player) == 1 and len(days_not_needing_player) >= 1:
             critical_day = days_needing_player[0]
-            critical_assignments[player] = critical_day
+
+            # Check if reserving this player would reduce complete pods on other days
+            can_reserve = True
+            for other_day in days_not_needing_player:
+                total_on_day = len(day_to_players.get(other_day, []))
+                already_reserved = reserved_from_day.get(other_day, 0)
+                effective_count = total_on_day - already_reserved
+
+                # Current pods possible vs pods after reserving this player
+                current_pods = effective_count // 4
+                new_pods = (effective_count - 1) // 4
+
+                # Don't reserve if it would reduce the number of complete pods
+                if new_pods < current_pods:
+                    can_reserve = False
+                    break
+
+            if can_reserve:
+                critical_assignments[player] = critical_day
+                # Track that we're reserving this player away from their other days
+                for other_day in days_not_needing_player:
+                    reserved_from_day[other_day] = reserved_from_day.get(other_day, 0) + 1
 
     return critical_assignments
 

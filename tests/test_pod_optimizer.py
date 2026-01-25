@@ -216,6 +216,51 @@ class TestPodOptimizer(unittest.TestCase):
             "Eli should be a flexible candidate")
 
 
+    def test_eight_flexible_players_one_day_three_on_other_days(self):
+        """
+        Bug reproduction: 8 flexible players on one day should form 2 pods.
+
+        Scenario that caused bug:
+        - Monday: 8 players (all flexible, each also voted for another day)
+        - Tuesday: 3 players (p1, p2, p3 - can't form pod alone)
+        - Wednesday: 3 players (p4, p5, p6 - can't form pod alone)
+        - Thursday: 3 players (p7, p8, plus one person unique to Thursday)
+
+        Expected: Monday forms 2 pods of 4 players each (8 players get games).
+        Bug: Only 1 pod was formed because all flexible players were being
+             reserved as "critical" for their secondary days, leaving no one
+             available to form Monday pods.
+        """
+        availability = {
+            # All 8 available Monday and one other day
+            'p1': ['Monday', 'Tuesday'],
+            'p2': ['Monday', 'Tuesday'],
+            'p3': ['Monday', 'Tuesday'],
+            'p4': ['Monday', 'Wednesday'],
+            'p5': ['Monday', 'Wednesday'],
+            'p6': ['Monday', 'Wednesday'],
+            'p7': ['Monday', 'Thursday'],
+            'p8': ['Monday', 'Thursday'],
+            # One person unique to Thursday to make it 3 people
+            'p9': ['Thursday'],
+        }
+
+        result = optimize_pods(availability)
+
+        # Monday should form 2 pods with 8 players
+        monday_pods = [p for p in result.pods if p.day == 'Monday']
+        self.assertEqual(len(monday_pods), 2,
+            f"Monday should have 2 pods, got {len(monday_pods)}. All pods: {result.pods}")
+
+        # 8 players should have games (all Monday players)
+        self.assertEqual(len(result.players_with_games), 8,
+            f"8 players should have games, got {len(result.players_with_games)}: {result.players_with_games}")
+
+        # p9 should not have a game (Thursday only has 3 people after Monday takes players)
+        self.assertIn('p9', result.players_without_games,
+            "p9 should not have a game (Thursday can't form a pod)")
+
+
 class TestFormatResults(unittest.TestCase):
     """Test cases for result formatting."""
 

@@ -35,7 +35,14 @@ Implements a greedy optimization algorithm with two key enhancements:
 - Notifies users when manual choice is needed
 - Prevents suboptimal pod formations
 
-**Test Coverage**: 12 progressively complex scenarios, all passing
+#### Algorithm Enhancement: Complete Pod Priority & Double-Play
+- Prioritizes days with exact multiples of 4 players (complete pods)
+- Detects when 3 players are waiting and flexible players could volunteer
+- Instead of auto-assigning, prompts eligible players with interactive buttons
+- First volunteer to click creates the pod automatically in database
+- Maximizes total games played while respecting player autonomy
+
+**Test Coverage**: 15 tests covering all scenarios, all passing
 
 ### 3. Discord Bot Features
 - **Commands**:
@@ -305,6 +312,11 @@ python-dotenv>=1.0.0    # Environment variable management
 APScheduler>=3.10.0     # Scheduled job execution
 pytz>=2024.1            # Timezone handling
 ```
+
+## Development Notes
+
+- **Python command**: Use `python3` (not `python`) to run scripts and tests
+- **Run tests**: `python3 -m unittest discover tests -v`
 
 ## Contributing
 
