@@ -317,6 +317,7 @@ pytz>=2024.1            # Timezone handling
 
 - **Python command**: Use `python3` (not `python`) to run scripts and tests
 - **Run tests**: `python3 -m unittest discover tests -v`
+- **Docker command**: Use `docker compose` (not `docker-compose`) for container management
 
 ## Contributing
 
