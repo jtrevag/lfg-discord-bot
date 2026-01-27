@@ -7,7 +7,7 @@ import json
 import discord
 from discord.ext import commands
 from typing import Dict, List
-from datetime import timedelta
+from datetime import datetime, timedelta
 import asyncio
 import subprocess
 
@@ -174,14 +174,14 @@ async def create_poll(channel: discord.TextChannel, config: dict) -> discord.Mes
     return message
 
 
-async def schedule_poll_completion(poll_message_id: int, channel: discord.TextChannel, duration_hours: int):
+async def schedule_poll_completion(poll_message_id: int, channel: discord.TextChannel, duration_hours: float):
     """
     Schedule automatic pod calculation when poll completes.
 
     Args:
         poll_message_id: ID of the poll message
         channel: Channel containing the poll
-        duration_hours: How long the poll lasts
+        duration_hours: How long until the poll ends (can be fractional)
     """
     # Wait for the poll to complete
     wait_seconds = duration_hours * 3600
@@ -253,7 +253,22 @@ async def recover_incomplete_polls(bot):
                 await process_poll_results(message.poll, channel, bot)
                 processed_count += 1
             else:
-                print(f'Poll {poll_record.discord_message_id} is still active, skipping')
+                # Poll is still active - schedule completion task for when it ends
+                if message.poll.expires_at:
+                    remaining = (message.poll.expires_at - datetime.now(message.poll.expires_at.tzinfo)).total_seconds()
+                    if remaining > 0:
+                        print(f'Poll {poll_record.discord_message_id} still active, scheduling completion in {remaining:.0f} seconds')
+                        asyncio.create_task(schedule_poll_completion(
+                            int(poll_record.discord_message_id),
+                            channel,
+                            remaining / 3600  # Convert seconds to hours
+                        ))
+                    else:
+                        # Poll should have ended but Discord says not finalized - process anyway
+                        print(f'Poll {poll_record.discord_message_id} should have ended, processing now')
+                        await process_poll_results(message.poll, channel, bot)
+                else:
+                    print(f'Poll {poll_record.discord_message_id} is still active (no expiry info), skipping')
 
         except Exception as e:
             print(f'Error processing poll {poll_record.discord_message_id}: {e}')
