@@ -7,7 +7,7 @@ import json
 import discord
 from discord.ext import commands
 from typing import Dict, List
-from datetime import timedelta
+from datetime import datetime, timedelta
 import asyncio
 import subprocess
 
@@ -60,6 +60,10 @@ def create_bot():
     bot.active_poll_id = None
     bot.poll_scheduler = None
 
+    # Initialize database
+    from lfg_bot.utils.database import initialize_database
+    bot.db = initialize_database()
+
     # Register event handlers
     @bot.event
     async def on_ready():
@@ -69,9 +73,18 @@ def create_bot():
         print(f'Bot version: {version}')
         print(f'Bot is in {len(bot.guilds)} guild(s)')
 
+        # Verify database connectivity
+        from lfg_bot.utils.database import verify_database
+        verify_database(bot.db)
+        print('Database initialized and verified')
+
+        # Recover any incomplete polls that finished while bot was offline
+        await recover_incomplete_polls(bot)
+
         # Load cogs
         await bot.load_extension('lfg_bot.cogs.polls')
-        print('Loaded cogs: polls')
+        await bot.load_extension('lfg_bot.cogs.games')
+        print('Loaded cogs: polls, games')
 
         # Start the scheduler
         channel = bot.get_channel(int(os.getenv('POLL_CHANNEL_ID')))
@@ -135,20 +148,40 @@ async def create_poll(channel: discord.TextChannel, config: dict) -> discord.Mes
 
     print(f'Poll created with ID: {message.id}')
 
+    # Save poll record to database immediately
+    try:
+        from lfg_bot.utils.database import get_active_league, Poll
+        import json
+
+        league = get_active_league()
+        if league:
+            Poll.create(
+                league=league,
+                discord_message_id=str(message.id),
+                created_at=datetime.now(),
+                completed_at=None,  # Will be set when poll completes
+                poll_question=config['poll_question'],
+                poll_days=json.dumps(config['poll_days'])
+            )
+            print(f'Poll record saved to database (message ID: {message.id})')
+    except Exception as e:
+        print(f'Warning: Failed to save poll to database: {e}')
+        # Continue anyway - don't break poll creation
+
     # Schedule automatic pod calculation when poll ends
     asyncio.create_task(schedule_poll_completion(message.id, channel, duration_hours))
 
     return message
 
 
-async def schedule_poll_completion(poll_message_id: int, channel: discord.TextChannel, duration_hours: int):
+async def schedule_poll_completion(poll_message_id: int, channel: discord.TextChannel, duration_hours: float):
     """
     Schedule automatic pod calculation when poll completes.
 
     Args:
         poll_message_id: ID of the poll message
         channel: Channel containing the poll
-        duration_hours: How long the poll lasts
+        duration_hours: How long until the poll ends (can be fractional)
     """
     # Wait for the poll to complete
     wait_seconds = duration_hours * 3600
@@ -172,14 +205,94 @@ async def schedule_poll_completion(poll_message_id: int, channel: discord.TextCh
         await channel.send(f"Error calculating pods: {e}")
 
 
-async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel):
+async def recover_incomplete_polls(bot):
+    """
+    Check for polls that completed while bot was offline and process them.
+
+    Args:
+        bot: Bot instance
+    """
+    from lfg_bot.utils.database import get_polls_needing_processing
+
+    print('Checking for incomplete polls...')
+
+    # Get polls that might need processing (created in last 7 days, no pods)
+    polls_to_check = get_polls_needing_processing(days_back=7)
+
+    if not polls_to_check:
+        print('No incomplete polls found.')
+        return
+
+    print(f'Found {len(polls_to_check)} poll(s) that might need processing')
+
+    processed_count = 0
+
+    for poll_record in polls_to_check:
+        try:
+            # Get the channel from the poll's league
+            channel = bot.get_channel(int(os.getenv('POLL_CHANNEL_ID')))
+            if not channel:
+                print(f'Warning: Could not find channel for poll {poll_record.discord_message_id}')
+                continue
+
+            # Try to fetch the poll message
+            try:
+                message = await channel.fetch_message(int(poll_record.discord_message_id))
+            except discord.NotFound:
+                print(f'Poll message {poll_record.discord_message_id} not found, skipping')
+                continue
+
+            # Check if message has a poll
+            if not message.poll:
+                print(f'Message {poll_record.discord_message_id} has no poll, skipping')
+                continue
+
+            # Check if poll has ended (is_finalised indicates poll is closed)
+            if message.poll.is_finalised():
+                print(f'Processing completed poll: {poll_record.discord_message_id}')
+                await process_poll_results(message.poll, channel, bot)
+                processed_count += 1
+            else:
+                # Poll is still active - schedule completion task for when it ends
+                if message.poll.expires_at:
+                    remaining = (message.poll.expires_at - datetime.now(message.poll.expires_at.tzinfo)).total_seconds()
+                    if remaining > 0:
+                        print(f'Poll {poll_record.discord_message_id} still active, scheduling completion in {remaining:.0f} seconds')
+                        asyncio.create_task(schedule_poll_completion(
+                            int(poll_record.discord_message_id),
+                            channel,
+                            remaining / 3600  # Convert seconds to hours
+                        ))
+                    else:
+                        # Poll should have ended but Discord says not finalized - process anyway
+                        print(f'Poll {poll_record.discord_message_id} should have ended, processing now')
+                        await process_poll_results(message.poll, channel, bot)
+                else:
+                    print(f'Poll {poll_record.discord_message_id} is still active (no expiry info), skipping')
+
+        except Exception as e:
+            print(f'Error processing poll {poll_record.discord_message_id}: {e}')
+            continue
+
+    if processed_count > 0:
+        print(f'✅ Successfully processed {processed_count} incomplete poll(s)')
+    else:
+        print('No polls needed processing.')
+
+
+async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel, bot=None):
     """
     Process poll results and calculate optimal pods.
 
     Args:
         poll: The Discord poll object
         channel: Channel to send results to
+        bot: Bot instance (optional, will fetch from channel if not provided)
     """
+    # Get bot instance if not provided
+    if bot is None:
+        bot = channel.guild.me._state._get_client()
+
     # Extract votes from poll
     availability: Dict[str, List[str]] = {}
 
@@ -205,9 +318,35 @@ async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel)
     # Optimize pods
     result = optimize_pods(availability)
 
-    # Format and send results
-    message = format_pod_results(result)
-    await channel.send(message)
+    # Save to database
+    from lfg_bot.utils.database import save_poll_and_pods
+    from lfg_bot.utils.game_ui import post_pods_with_buttons
+
+    poll_record = None
+    try:
+        # Get poll message ID from poll context (it's from a message)
+        poll_message_id = str(poll.message.id) if hasattr(poll, 'message') else "unknown"
+        poll_record = save_poll_and_pods(
+            bot=bot,
+            discord_message_id=poll_message_id,
+            result=result,
+            poll_days=bot.config.get('poll_days', [])
+        )
+        print(f'Saved {len(result.pods)} pods to database (poll ID: {poll_record.id})')
+    except Exception as e:
+        print(f'Warning: Failed to save pods to database: {e}')
+        # Continue anyway - don't break existing functionality
+
+    # Post results with interactive buttons
+    await channel.send("**Poll has ended! Here are this week's pods:**\n")
+
+    if poll_record:
+        # Use new UI with buttons
+        await post_pods_with_buttons(channel, result, poll_record)
+    else:
+        # Fallback to text-only if database save failed
+        message = format_pod_results(result)
+        await channel.send(message)
 
     print(f'Pods calculated: {len(result.pods)} pods formed')
     print(f'Players with games: {len(result.players_with_games)}')

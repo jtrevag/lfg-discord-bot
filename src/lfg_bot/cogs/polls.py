@@ -33,22 +33,27 @@ class PollsCog(commands.Cog, name="Polls"):
     async def calculate_pods_command(self, ctx):
         """Manually trigger pod calculation from the latest poll (admin only)."""
         from lfg_bot.bot import process_poll_results
+        from lfg_bot.utils.database import get_most_recent_poll
 
-        active_poll_id = getattr(self.bot, 'active_poll_id', None)
+        # Try to find the most recent poll from the database
+        poll_record = get_most_recent_poll(days_back=7)
 
-        if not active_poll_id:
-            await ctx.send("No active poll found. Create a poll first with !createpoll")
+        if not poll_record:
+            await ctx.send("No recent poll found in the database. Create a poll first with !createpoll")
             return
 
-        # Fetch the poll message
+        poll_message_id = int(poll_record.discord_message_id)
+
+        # Fetch the poll message from Discord
         try:
-            message = await ctx.channel.fetch_message(active_poll_id)
+            message = await ctx.channel.fetch_message(poll_message_id)
             if message.poll:
-                await process_poll_results(message.poll, ctx.channel)
+                await ctx.send("**Calculating pods from the latest poll...**")
+                await process_poll_results(message.poll, ctx.channel, self.bot)
             else:
                 await ctx.send("The message doesn't contain a poll.")
         except discord.NotFound:
-            await ctx.send("Poll message not found.")
+            await ctx.send(f"Poll message (ID: {poll_message_id}) not found in this channel.")
         except Exception as e:
             await ctx.send(f"Error fetching poll: {e}")
 

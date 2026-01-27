@@ -79,6 +79,7 @@ def _detect_critical_flexible_players(
     A flexible player (available 2+ days) is "critical" for Day A if:
     - Day A would have < 4 players without them
     - At least one other day they're available on would still have >= 4 players without them
+    - Reserving them wouldn't reduce the number of complete pods on their other days
 
     Returns:
         Dict mapping player_id -> day they must be assigned to
@@ -92,6 +93,9 @@ def _detect_critical_flexible_players(
         if len(days) >= 2
     }
 
+    # Track how many players we're reserving away from each day
+    reserved_from_day: Dict[str, int] = {}
+
     for player, player_days in flexible_players.items():
         # Count how many players each day would have WITHOUT this player
         days_remaining = {}
@@ -104,10 +108,31 @@ def _detect_critical_flexible_players(
         days_needing_player = [day for day, count in days_remaining.items() if count < 4]
         days_not_needing_player = [day for day, count in days_remaining.items() if count >= 4]
 
-        # If player is critical for one day but not others, assign them there
+        # If player is critical for one day but not others, consider assigning them there
         if len(days_needing_player) == 1 and len(days_not_needing_player) >= 1:
             critical_day = days_needing_player[0]
-            critical_assignments[player] = critical_day
+
+            # Check if reserving this player would reduce complete pods on other days
+            can_reserve = True
+            for other_day in days_not_needing_player:
+                total_on_day = len(day_to_players.get(other_day, []))
+                already_reserved = reserved_from_day.get(other_day, 0)
+                effective_count = total_on_day - already_reserved
+
+                # Current pods possible vs pods after reserving this player
+                current_pods = effective_count // 4
+                new_pods = (effective_count - 1) // 4
+
+                # Don't reserve if it would reduce the number of complete pods
+                if new_pods < current_pods:
+                    can_reserve = False
+                    break
+
+            if can_reserve:
+                critical_assignments[player] = critical_day
+                # Track that we're reserving this player away from their other days
+                for other_day in days_not_needing_player:
+                    reserved_from_day[other_day] = reserved_from_day.get(other_day, 0) + 1
 
     return critical_assignments
 
@@ -123,8 +148,9 @@ def _find_best_assignment(
     Strategy:
     1. Detect critical flexible players (must be assigned to specific day)
     2. Pre-assign critical players to their required days
-    3. Prioritize remaining days by unique player count
+    3. Prioritize "complete" days (exactly 4, 8, 12... players) first
     4. Form pods greedily on sorted days
+    5. Allow flexible players to play twice if it enables additional pods
     """
     pods = []
     assigned_players = set()
@@ -151,10 +177,21 @@ def _find_best_assignment(
     # Mark critical players as reserved (can't be used on other days)
     reserved_players = set(critical_assignments.keys())
 
-    # STEP 2: Sort days by unique player count first, then total count (both descending)
+    # STEP 2: Sort days prioritizing complete pods
+    # Sort by:
+    # 1. Whether day has exact multiple of 4 players (complete pods)
+    # 2. Unique player count (players only available that day)
+    # 3. Total player count
+    def day_priority(day_info):
+        day, players = day_info
+        player_count = len(players)
+        unique_count = _count_unique_players(day, day_to_players, availability)
+        is_complete = (player_count % 4 == 0 and player_count > 0)
+        return (is_complete, unique_count, player_count)
+
     sorted_days = sorted(
         day_to_players.items(),
-        key=lambda x: (_count_unique_players(x[0], day_to_players, availability), len(x[1])),
+        key=day_priority,
         reverse=True
     )
 
@@ -185,13 +222,51 @@ def _find_best_assignment(
                 if p not in assigned_players and (p not in reserved_players or p in critical_for_day)
             ]
 
+    # STEP 4: Second pass - detect double-play opportunities
+    # Check each day to see if we're 1 player short of forming a pod
+    double_play_opportunity = None
+
+    for day, available in sorted_days:
+        unassigned_available = [p for p in available if p not in assigned_players]
+
+        # If we have 3 unassigned players, check if a flexible player can play twice
+        if len(unassigned_available) == 3:
+            # Find flexible players who are already assigned but available this day
+            flexible_candidates = [
+                p for p in available
+                if p in assigned_players and len(availability.get(p, [])) > 1
+            ]
+
+            if flexible_candidates:
+                # Create a choice scenario asking which player can volunteer
+                double_play_opportunity = {
+                    'scenario': 'double_play_needed',
+                    'day': day,
+                    'waiting_players': unassigned_available,
+                    'flexible_candidates': flexible_candidates,
+                    'message': (
+                        f"**Need 1 more player for {day}!**\n\n"
+                        f"Waiting to play: {', '.join([f'<@{p}>' for p in unassigned_available])}\n\n"
+                        f"Can any of these players join for a 2nd game?\n"
+                        f"{', '.join([f'<@{p}>' for p in flexible_candidates])}\n\n"
+                        f"React or reply if you can play twice this week! 🎲"
+                    )
+                }
+                break  # Only show one opportunity at a time
+
     players_without_games = all_players - assigned_players
 
-    return OptimizationResult(
+    result = OptimizationResult(
         pods=pods,
         players_with_games=assigned_players,
         players_without_games=players_without_games
     )
+
+    # Set choice_required if there's a double-play opportunity
+    if double_play_opportunity:
+        result.choice_required = double_play_opportunity
+
+    return result
 
 
 def _detect_choice_scenario(
@@ -249,13 +324,38 @@ def format_pod_results(result: OptimizationResult) -> str:
     lines = ["**Pod Assignments for This Week**\n"]
 
     if result.choice_required:
-        lines.append(f"**PLAYER CHOICE REQUIRED**")
-        lines.append(result.choice_required["message"])
-        lines.append(f"\n**Potential Pods:**")
-        lines.append(f"**{result.choice_required['day1']}:** {', '.join([f'<@{p}>' for p in result.choice_required['pod1']])}")
-        lines.append(f"**{result.choice_required['day2']}:** {', '.join([f'<@{p}>' for p in result.choice_required['pod2']])}")
-        lines.append("\nPlease react or respond with your choice!")
-        return "\n".join(lines)
+        scenario_type = result.choice_required.get("scenario", "unknown")
+
+        if scenario_type == "double_play_needed":
+            # Show completed pods first
+            if result.pods:
+                pods_by_day = {}
+                for pod in result.pods:
+                    if pod.day not in pods_by_day:
+                        pods_by_day[pod.day] = []
+                    pods_by_day[pod.day].append(pod)
+
+                for day in sorted(pods_by_day.keys()):
+                    lines.append(f"**{day}:**")
+                    for i, pod in enumerate(pods_by_day[day], 1):
+                        player_mentions = ", ".join([f"<@{p}>" for p in pod.players])
+                        lines.append(f"  Pod {i}: {player_mentions}")
+                    lines.append("")
+
+            # Then show the choice prompt
+            lines.append("---")
+            lines.append(result.choice_required["message"])
+            return "\n".join(lines)
+
+        elif scenario_type == "critical_for_both":
+            # Original choice scenario formatting
+            lines.append(f"**PLAYER CHOICE REQUIRED**")
+            lines.append(result.choice_required["message"])
+            lines.append(f"\n**Potential Pods:**")
+            lines.append(f"**{result.choice_required['day1']}:** {', '.join([f'<@{p}>' for p in result.choice_required['pod1']])}")
+            lines.append(f"**{result.choice_required['day2']}:** {', '.join([f'<@{p}>' for p in result.choice_required['pod2']])}")
+            lines.append("\nPlease react or respond with your choice!")
+            return "\n".join(lines)
 
     if not result.pods:
         lines.append("No pods could be formed this week. Need at least 4 players for one day.")
