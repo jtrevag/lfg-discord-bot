@@ -45,6 +45,7 @@ htmlcov/
 *~
 .project
 .pydevproject
+.serena/
 
 # OS
 .DS_Store
