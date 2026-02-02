@@ -11,7 +11,12 @@ from datetime import datetime, timedelta
 import asyncio
 import subprocess
 
-from lfg_bot.utils.pod_optimizer import optimize_pods, format_pod_results
+from lfg_bot.utils.pod_optimizer import (
+    optimize_pods,
+    format_pod_results,
+    PREF_ONE_GAME_ONLY,
+    PREF_NO_CONSECUTIVE
+)
 from lfg_bot.utils.scheduler import PollScheduler
 
 
@@ -130,9 +135,13 @@ async def create_poll(channel: discord.TextChannel, config: dict) -> discord.Mes
         multiple=True  # Allow multiple selections
     )
 
-    # Add day options
+    # Add day options with emoji prefix
     for day in config['poll_days']:
-        poll.add_answer(text=day)
+        poll.add_answer(text=f"📅 {day}")
+
+    # Add preference options
+    poll.add_answer(text="🎮 Limit: One game only")
+    poll.add_answer(text="🔄 Limit: No consecutive nights")
 
     # Send the poll
     message = await channel.send(
@@ -295,28 +304,42 @@ async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel,
 
     # Extract votes from poll
     availability: Dict[str, List[str]] = {}
+    preferences: Dict[str, set] = {}
 
-    # Get the answer for each day
-    day_to_answer = {answer.text: answer for answer in poll.answers}
+    # Get the answer for each option
+    option_to_answer = {answer.text: answer for answer in poll.answers}
 
     # Process each answer's voters
-    for day_name, answer in day_to_answer.items():
+    for option_text, answer in option_to_answer.items():
         # Note: answer.voters is an async iterator
         async for user in answer.voters():
             if user.bot:
                 continue  # Skip bot votes
 
             user_id = str(user.id)
-            if user_id not in availability:
-                availability[user_id] = []
-            availability[user_id].append(day_name)
+
+            # Check if this is a preference option
+            if option_text == "🎮 Limit: One game only":
+                if user_id not in preferences:
+                    preferences[user_id] = set()
+                preferences[user_id].add(PREF_ONE_GAME_ONLY)
+            elif option_text == "🔄 Limit: No consecutive nights":
+                if user_id not in preferences:
+                    preferences[user_id] = set()
+                preferences[user_id].add(PREF_NO_CONSECUTIVE)
+            else:
+                # It's a day option - extract the day name
+                day_name = option_text.replace("📅 ", "")
+                if user_id not in availability:
+                    availability[user_id] = []
+                availability[user_id].append(day_name)
 
     if not availability:
         await channel.send("No votes recorded yet. Waiting for players to vote!")
         return
 
-    # Optimize pods
-    result = optimize_pods(availability)
+    # Optimize pods with preferences
+    result = optimize_pods(availability, preferences)
 
     # Save to database
     from lfg_bot.utils.database import save_poll_and_pods

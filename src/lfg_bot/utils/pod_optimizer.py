@@ -8,6 +8,22 @@ from dataclasses import dataclass
 from itertools import combinations
 
 
+# Preference constants
+PREF_ONE_GAME_ONLY = "one_game_only"
+PREF_NO_CONSECUTIVE = "no_consecutive"
+
+# Day adjacency map (includes Sunday-Monday wrap)
+ADJACENT_DAYS = {
+    'Monday': ['Sunday', 'Tuesday'],
+    'Tuesday': ['Monday', 'Wednesday'],
+    'Wednesday': ['Tuesday', 'Thursday'],
+    'Thursday': ['Wednesday', 'Friday'],
+    'Friday': ['Thursday', 'Saturday'],
+    'Saturday': ['Friday', 'Sunday'],
+    'Sunday': ['Saturday', 'Monday'],
+}
+
+
 @dataclass
 class PodAssignment:
     """Represents a pod assignment for a specific day."""
@@ -27,16 +43,61 @@ class OptimizationResult:
     choice_required: Optional[Dict] = None  # For cases where player must choose
 
 
-def optimize_pods(availability: Dict[str, List[str]]) -> OptimizationResult:
+def _can_assign_to_day(
+    player: str,
+    day: str,
+    player_assigned_days: Dict[str, List[str]],
+    preferences: Dict[str, Set[str]]
+) -> bool:
+    """
+    Check if assigning a player to a day respects their preferences.
+
+    Args:
+        player: Player ID
+        day: Day to potentially assign
+        player_assigned_days: Dict mapping player_id -> list of days already assigned
+        preferences: Dict mapping player_id -> set of preference flags
+
+    Returns:
+        True if assignment is allowed, False if it violates preferences
+    """
+    player_prefs = preferences.get(player, set())
+    assigned_days = player_assigned_days.get(player, [])
+
+    # Check "one game only" preference
+    if PREF_ONE_GAME_ONLY in player_prefs:
+        if len(assigned_days) >= 1:
+            return False
+
+    # Check "no consecutive nights" preference
+    if PREF_NO_CONSECUTIVE in player_prefs:
+        adjacent = ADJACENT_DAYS.get(day, [])
+        for assigned_day in assigned_days:
+            if assigned_day in adjacent:
+                return False
+
+    return True
+
+
+def optimize_pods(
+    availability: Dict[str, List[str]],
+    preferences: Dict[str, Set[str]] = None
+) -> OptimizationResult:
     """
     Optimize pod creation to maximize players who play at least once.
 
     Args:
         availability: Dict mapping player_id -> list of available days
+        preferences: Dict mapping player_id -> set of preference flags
+                    (e.g., PREF_ONE_GAME_ONLY, PREF_NO_CONSECUTIVE)
 
     Returns:
         OptimizationResult with pod assignments and statistics
     """
+    # Default to empty preferences if not provided
+    if preferences is None:
+        preferences = {}
+
     # Invert the mapping: day -> list of available players
     day_to_players: Dict[str, List[str]] = {}
     all_players = set(availability.keys())
@@ -48,7 +109,7 @@ def optimize_pods(availability: Dict[str, List[str]]) -> OptimizationResult:
             day_to_players[day].append(player)
 
     # Try to find optimal pod assignments
-    best_result = _find_best_assignment(day_to_players, all_players, availability)
+    best_result = _find_best_assignment(day_to_players, all_players, availability, preferences)
 
     # Check for scenarios where a multi-day player enables multiple pods
     choice_scenario = _detect_choice_scenario(availability, day_to_players, best_result)
@@ -140,7 +201,8 @@ def _detect_critical_flexible_players(
 def _find_best_assignment(
     day_to_players: Dict[str, List[str]],
     all_players: Set[str],
-    availability: Dict[str, List[str]] = None
+    availability: Dict[str, List[str]] = None,
+    preferences: Dict[str, Set[str]] = None
 ) -> OptimizationResult:
     """
     Find the best pod assignment using enhanced greedy approach.
@@ -151,9 +213,15 @@ def _find_best_assignment(
     3. Prioritize "complete" days (exactly 4, 8, 12... players) first
     4. Form pods greedily on sorted days
     5. Allow flexible players to play twice if it enables additional pods
+    6. Respect player preferences (one game only, no consecutive nights)
     """
     pods = []
     assigned_players = set()
+    player_assigned_days: Dict[str, List[str]] = {}  # Track which days each player is assigned to
+
+    # Default to empty preferences if not provided
+    if preferences is None:
+        preferences = {}
 
     # If availability not provided, reconstruct it (for backwards compatibility)
     if availability is None:
@@ -206,11 +274,23 @@ def _find_best_assignment(
         # Start with critical players for this day (if any)
         critical_for_day = critical_by_day.get(day, [])
 
-        # Get other players available on this day who aren't assigned or reserved elsewhere
-        unassigned_available = [
-            p for p in available
-            if p not in assigned_players and (p not in reserved_players or p in critical_for_day)
-        ]
+        # Get players available on this day who:
+        # - Are not yet assigned OR can play multiple times based on preferences
+        # - Are not reserved for another day (unless critical for this day)
+        # - Can be assigned to this day per their preferences
+        def is_eligible(p):
+            # Already assigned and preferences block this day
+            if p in assigned_players:
+                return False
+            # Reserved for another day (unless critical for this day)
+            if p in reserved_players and p not in critical_for_day:
+                return False
+            # Preferences would be violated (check consecutive nights for first assignment)
+            if not _can_assign_to_day(p, day, player_assigned_days, preferences):
+                return False
+            return True
+
+        unassigned_available = [p for p in available if is_eligible(p)]
 
         # Form pods while we have enough players
         while len(unassigned_available) >= 4:
@@ -219,14 +299,15 @@ def _find_best_assignment(
 
             for player in pod_players:
                 assigned_players.add(player)
+                # Track which day(s) each player is assigned to
+                if player not in player_assigned_days:
+                    player_assigned_days[player] = []
+                player_assigned_days[player].append(day)
                 if player in reserved_players:
                     reserved_players.remove(player)  # No longer reserved once assigned
 
             # Recalculate available players
-            unassigned_available = [
-                p for p in available
-                if p not in assigned_players and (p not in reserved_players or p in critical_for_day)
-            ]
+            unassigned_available = [p for p in available if is_eligible(p)]
 
         # After processing this day, release reserved players whose target days
         # can no longer form a pod (because other players were assigned)
@@ -256,9 +337,14 @@ def _find_best_assignment(
         # If we have 3 unassigned players, check if a flexible player can play twice
         if len(unassigned_available) == 3:
             # Find flexible players who are already assigned but available this day
+            # Exclude players with "one game only" preference
+            # Exclude players who would violate "no consecutive nights" preference
             flexible_candidates = [
                 p for p in available
-                if p in assigned_players and len(availability.get(p, [])) > 1
+                if p in assigned_players
+                and len(availability.get(p, [])) > 1
+                and PREF_ONE_GAME_ONLY not in preferences.get(p, set())
+                and _can_assign_to_day(p, day, player_assigned_days, preferences)
             ]
 
             if flexible_candidates:

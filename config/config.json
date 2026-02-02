@@ -1,5 +1,5 @@
 {
-  "poll_days": ["Monday", "Tuesday", "Wednesday"],
+  "poll_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
   "poll_schedule": {
     "day_of_week": "sun",
     "hour": 18,

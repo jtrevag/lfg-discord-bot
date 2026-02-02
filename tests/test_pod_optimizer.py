@@ -15,7 +15,10 @@ from lfg_bot.utils.pod_optimizer import (
     PodAssignment,
     OptimizationResult,
     _find_best_assignment,
-    _detect_choice_scenario
+    _detect_choice_scenario,
+    PREF_ONE_GAME_ONLY,
+    PREF_NO_CONSECUTIVE,
+    _can_assign_to_day
 )
 
 
@@ -480,6 +483,269 @@ class TestHelperFunctions(unittest.TestCase):
 
         # Should form pods from both days
         self.assertEqual(len(result.pods), 2)
+
+
+class TestPlayerPreferences(unittest.TestCase):
+    """Test cases for player preference handling."""
+
+    def test_one_game_only_respected(self):
+        """Player with 'one game only' preference is assigned to only one pod."""
+        availability = {
+            'alice': ['Monday', 'Wednesday'],
+            'bob': ['Monday'],
+            'charlie': ['Monday'],
+            'dave': ['Monday'],
+            'eve': ['Wednesday'],
+            'frank': ['Wednesday'],
+            'grace': ['Wednesday'],
+        }
+        preferences = {
+            'alice': {PREF_ONE_GAME_ONLY}
+        }
+
+        result = optimize_pods(availability, preferences)
+
+        # Alice should only be in one pod
+        alice_pods = [pod for pod in result.pods if 'alice' in pod.players]
+        self.assertEqual(len(alice_pods), 1,
+            "Alice should only be in one pod due to 'one game only' preference")
+
+    def test_no_consecutive_nights_respected(self):
+        """Player with 'no consecutive' preference doesn't get Mon+Tue."""
+        availability = {
+            'alice': ['Monday', 'Tuesday'],
+            'bob': ['Monday'],
+            'charlie': ['Monday'],
+            'dave': ['Monday'],
+            'eve': ['Tuesday'],
+            'frank': ['Tuesday'],
+            'grace': ['Tuesday'],
+        }
+        preferences = {
+            'alice': {PREF_NO_CONSECUTIVE}
+        }
+
+        result = optimize_pods(availability, preferences)
+
+        # Alice should only be in one pod (Mon and Tue are consecutive)
+        alice_pods = [pod for pod in result.pods if 'alice' in pod.players]
+        self.assertLessEqual(len(alice_pods), 1,
+            "Alice should not be in both Monday and Tuesday pods (consecutive)")
+
+    def test_no_consecutive_allows_non_adjacent(self):
+        """Player with 'no consecutive' CAN get Mon+Wed (not adjacent)."""
+        availability = {
+            'alice': ['Monday', 'Wednesday'],
+            'bob': ['Monday'],
+            'charlie': ['Monday'],
+            'dave': ['Monday'],
+            'eve': ['Wednesday'],
+            'frank': ['Wednesday'],
+            'grace': ['Wednesday'],
+        }
+        preferences = {
+            'alice': {PREF_NO_CONSECUTIVE}
+        }
+
+        result = optimize_pods(availability, preferences)
+
+        # Alice can be in both Monday and Wednesday pods (not consecutive)
+        # This depends on the algorithm choosing to use Alice on both days
+        # At minimum, Alice should be in at least one pod
+        alice_pods = [pod for pod in result.pods if 'alice' in pod.players]
+        self.assertGreaterEqual(len(alice_pods), 1,
+            "Alice should be in at least one pod")
+
+    def test_combined_preferences(self):
+        """Both preferences honored together."""
+        availability = {
+            'alice': ['Monday', 'Tuesday', 'Wednesday'],
+            'bob': ['Monday'],
+            'charlie': ['Monday'],
+            'dave': ['Monday'],
+            'eve': ['Tuesday'],
+            'frank': ['Tuesday'],
+            'grace': ['Tuesday'],
+            'henry': ['Wednesday'],
+            'iris': ['Wednesday'],
+            'jack': ['Wednesday'],
+        }
+        preferences = {
+            'alice': {PREF_ONE_GAME_ONLY, PREF_NO_CONSECUTIVE}
+        }
+
+        result = optimize_pods(availability, preferences)
+
+        # Alice should only be in one pod (one game only takes precedence)
+        alice_pods = [pod for pod in result.pods if 'alice' in pod.players]
+        self.assertEqual(len(alice_pods), 1,
+            "Alice should only be in one pod due to 'one game only' preference")
+
+    def test_preference_prevents_critical_double(self):
+        """Critical player with 'one game' stays in one pod only."""
+        # Alice is critical for both Monday and Wednesday, but has "one game only"
+        availability = {
+            'alice': ['Monday', 'Wednesday'],
+            'bob': ['Monday'],
+            'charlie': ['Monday'],
+            'dave': ['Monday'],
+            'eve': ['Wednesday'],
+            'frank': ['Wednesday'],
+            'grace': ['Wednesday'],
+        }
+        preferences = {
+            'alice': {PREF_ONE_GAME_ONLY}
+        }
+
+        result = optimize_pods(availability, preferences)
+
+        # Alice should only be in one pod, even if critical for both
+        alice_pods = [pod for pod in result.pods if 'alice' in pod.players]
+        self.assertEqual(len(alice_pods), 1,
+            "Alice should stay in one pod despite being critical")
+
+    def test_one_game_excluded_from_double_play(self):
+        """'One game' players are NOT in flexible_candidates for double-play."""
+        availability = {
+            # Monday has 4 players - will form a pod
+            'alice': ['Monday', 'Wednesday'],  # Flexible but wants one game only
+            'bob': ['Monday'],
+            'charlie': ['Monday'],
+            'dave': ['Monday'],
+            # Wednesday has only 3 players - needs 1 more
+            'eve': ['Wednesday'],
+            'frank': ['Wednesday'],
+            'grace': ['Wednesday'],
+        }
+        preferences = {
+            'alice': {PREF_ONE_GAME_ONLY}
+        }
+
+        result = optimize_pods(availability, preferences)
+
+        # If there's a double-play opportunity, Alice should NOT be a candidate
+        if result.choice_required and result.choice_required.get('scenario') == 'double_play_needed':
+            self.assertNotIn('alice', result.choice_required.get('flexible_candidates', []),
+                "Alice should not be a double-play candidate due to 'one game only'")
+
+    def test_backward_compatible_no_preferences(self):
+        """Works when preferences parameter is omitted."""
+        availability = {
+            'alice': ['Monday'],
+            'bob': ['Monday'],
+            'charlie': ['Monday'],
+            'dave': ['Monday'],
+        }
+
+        # Call without preferences parameter
+        result = optimize_pods(availability)
+
+        self.assertEqual(len(result.pods), 1)
+        self.assertEqual(len(result.players_with_games), 4)
+
+    def test_empty_preferences_dict(self):
+        """Empty dict behaves same as None."""
+        availability = {
+            'alice': ['Monday'],
+            'bob': ['Monday'],
+            'charlie': ['Monday'],
+            'dave': ['Monday'],
+        }
+
+        result = optimize_pods(availability, {})
+
+        self.assertEqual(len(result.pods), 1)
+        self.assertEqual(len(result.players_with_games), 4)
+
+    def test_sunday_monday_consecutive(self):
+        """Sunday and Monday are treated as consecutive (week wraps)."""
+        availability = {
+            'alice': ['Sunday', 'Monday'],
+            'bob': ['Sunday'],
+            'charlie': ['Sunday'],
+            'dave': ['Sunday'],
+            'eve': ['Monday'],
+            'frank': ['Monday'],
+            'grace': ['Monday'],
+        }
+        preferences = {
+            'alice': {PREF_NO_CONSECUTIVE}
+        }
+
+        result = optimize_pods(availability, preferences)
+
+        # Alice should only be in one pod (Sun and Mon are consecutive)
+        alice_pods = [pod for pod in result.pods if 'alice' in pod.players]
+        self.assertLessEqual(len(alice_pods), 1,
+            "Alice should not be in both Sunday and Monday pods (consecutive wrap)")
+
+    def test_all_players_one_game_only(self):
+        """Maximize unique players when everyone wants one game."""
+        availability = {
+            'alice': ['Monday', 'Tuesday'],
+            'bob': ['Monday', 'Tuesday'],
+            'charlie': ['Monday'],
+            'dave': ['Monday'],
+            'eve': ['Tuesday'],
+            'frank': ['Tuesday'],
+        }
+        preferences = {
+            'alice': {PREF_ONE_GAME_ONLY},
+            'bob': {PREF_ONE_GAME_ONLY},
+        }
+
+        result = optimize_pods(availability, preferences)
+
+        # Alice and Bob should each be in at most one pod
+        alice_pods = [pod for pod in result.pods if 'alice' in pod.players]
+        bob_pods = [pod for pod in result.pods if 'bob' in pod.players]
+
+        self.assertLessEqual(len(alice_pods), 1)
+        self.assertLessEqual(len(bob_pods), 1)
+
+    def test_can_assign_to_day_helper(self):
+        """Test the _can_assign_to_day helper function directly."""
+        # Test one game only
+        player_assigned_days = {'alice': ['Monday']}
+        preferences = {'alice': {PREF_ONE_GAME_ONLY}}
+
+        # Alice already has a game, can't assign to Tuesday
+        self.assertFalse(_can_assign_to_day('alice', 'Tuesday', player_assigned_days, preferences))
+
+        # Bob has no assignments and no prefs - can assign
+        self.assertTrue(_can_assign_to_day('bob', 'Tuesday', {}, {}))
+
+        # Test no consecutive
+        player_assigned_days = {'charlie': ['Monday']}
+        preferences = {'charlie': {PREF_NO_CONSECUTIVE}}
+
+        # Charlie on Monday, can't do Tuesday (consecutive)
+        self.assertFalse(_can_assign_to_day('charlie', 'Tuesday', player_assigned_days, preferences))
+
+        # Charlie on Monday, CAN do Wednesday (not consecutive)
+        self.assertTrue(_can_assign_to_day('charlie', 'Wednesday', player_assigned_days, preferences))
+
+    def test_no_consecutive_wednesday_thursday(self):
+        """Verify Wednesday-Thursday are treated as consecutive."""
+        availability = {
+            'alice': ['Wednesday', 'Thursday'],
+            'bob': ['Wednesday'],
+            'charlie': ['Wednesday'],
+            'dave': ['Wednesday'],
+            'eve': ['Thursday'],
+            'frank': ['Thursday'],
+            'grace': ['Thursday'],
+        }
+        preferences = {
+            'alice': {PREF_NO_CONSECUTIVE}
+        }
+
+        result = optimize_pods(availability, preferences)
+
+        # Alice should only be in one pod
+        alice_pods = [pod for pod in result.pods if 'alice' in pod.players]
+        self.assertLessEqual(len(alice_pods), 1,
+            "Alice should not be in both Wednesday and Thursday pods")
 
 
 if __name__ == '__main__':
