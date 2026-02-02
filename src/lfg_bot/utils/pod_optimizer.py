@@ -182,12 +182,18 @@ def _find_best_assignment(
     # 1. Whether day has exact multiple of 4 players (complete pods)
     # 2. Unique player count (players only available that day)
     # 3. Total player count
+    # 4. Earlier in the week (tiebreaker - players prefer games sooner)
+    day_order = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
+                 'Friday': 4, 'Saturday': 5, 'Sunday': 6}
+
     def day_priority(day_info):
         day, players = day_info
         player_count = len(players)
         unique_count = _count_unique_players(day, day_to_players, availability)
         is_complete = (player_count % 4 == 0 and player_count > 0)
-        return (is_complete, unique_count, player_count)
+        # Negate day_order so earlier days sort higher (since we sort descending)
+        earlier_in_week = -day_order.get(day, 99)
+        return (is_complete, unique_count, player_count, earlier_in_week)
 
     sorted_days = sorted(
         day_to_players.items(),
@@ -221,6 +227,24 @@ def _find_best_assignment(
                 p for p in available
                 if p not in assigned_players and (p not in reserved_players or p in critical_for_day)
             ]
+
+        # After processing this day, release reserved players whose target days
+        # can no longer form a pod (because other players were assigned)
+        players_to_release = []
+        for reserved_player in reserved_players:
+            required_day = critical_assignments.get(reserved_player)
+            if required_day:
+                # Count available unassigned players for that day
+                available_on_required_day = [
+                    p for p in day_to_players.get(required_day, [])
+                    if p not in assigned_players
+                ]
+                # If < 4 players available, the day can't form a pod - release this player
+                if len(available_on_required_day) < 4:
+                    players_to_release.append(reserved_player)
+
+        for player in players_to_release:
+            reserved_players.remove(player)
 
     # STEP 4: Second pass - detect double-play opportunities
     # Check each day to see if we're 1 player short of forming a pod
