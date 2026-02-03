@@ -12,10 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 from lfg_bot.utils.pod_optimizer import (
     optimize_pods,
     format_pod_results,
+    group_pods_by_day,
     PodAssignment,
     OptimizationResult,
     _find_best_assignment,
-    _detect_choice_scenario,
     PREF_ONE_GAME_ONLY,
     PREF_NO_CONSECUTIVE,
     _can_assign_to_day

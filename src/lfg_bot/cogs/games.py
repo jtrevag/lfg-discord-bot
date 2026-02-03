@@ -28,6 +28,28 @@ class GamesCog(commands.Cog, name="Games"):
     def __init__(self, bot):
         self.bot = bot
 
+    async def _get_league(self, ctx, league_name: str = None):
+        """Get league by name or active league.
+
+        Returns:
+            (league, should_return) tuple. If should_return is True,
+            an error message was sent and the caller should return early.
+        """
+        try:
+            if league_name:
+                league = League.get(League.name == league_name)
+            else:
+                league = get_active_league()
+
+            if not league:
+                await ctx.send("❌ No active league found.")
+                return None, True
+
+            return league, False
+        except League.DoesNotExist:
+            await ctx.send(f"❌ League '{league_name}' not found.")
+            return None, True
+
     # === Button Interaction Handler ===
 
     @commands.Cog.listener()
@@ -196,16 +218,11 @@ class GamesCog(commands.Cog, name="Games"):
         Example: !leaderboard
         Example: !leaderboard Historical Games
         """
+        league, should_return = await self._get_league(ctx, league_name)
+        if should_return:
+            return
+
         try:
-            if league_name:
-                league = League.get(League.name == league_name)
-            else:
-                league = get_active_league()
-
-            if not league:
-                await ctx.send("❌ No active league found.")
-                return
-
             leaderboard = list(get_leaderboard(league.id, min_games=3, limit=10))
 
             if not leaderboard:
@@ -222,8 +239,6 @@ class GamesCog(commands.Cog, name="Games"):
 
             await ctx.send(message)
 
-        except League.DoesNotExist:
-            await ctx.send(f"❌ League '{league_name}' not found.")
         except Exception as e:
             await ctx.send(f"❌ Error: {str(e)}")
 
@@ -239,16 +254,11 @@ class GamesCog(commands.Cog, name="Games"):
         """
         player = player or ctx.author
 
+        league, should_return = await self._get_league(ctx, league_name)
+        if should_return:
+            return
+
         try:
-            if league_name:
-                league = League.get(League.name == league_name)
-            else:
-                league = get_active_league()
-
-            if not league:
-                await ctx.send("❌ No active league found.")
-                return
-
             stats = PlayerStats.get_or_none(
                 (PlayerStats.league == league) &
                 (PlayerStats.player_id == str(player.id))
@@ -270,8 +280,6 @@ class GamesCog(commands.Cog, name="Games"):
 
             await ctx.send(message)
 
-        except League.DoesNotExist:
-            await ctx.send(f"❌ League '{league_name}' not found.")
         except Exception as e:
             await ctx.send(f"❌ Error: {str(e)}")
 
@@ -283,15 +291,11 @@ class GamesCog(commands.Cog, name="Games"):
         Usage: !headtohead @player1 @player2 [league name]
         Example: !headtohead @Patrick @John
         """
-        try:
-            if league_name:
-                league = League.get(League.name == league_name)
-            else:
-                league = get_active_league()
+        league, should_return = await self._get_league(ctx, league_name)
+        if should_return:
+            return
 
-            if not league:
-                await ctx.send("❌ No active league found.")
-                return
+        try:
 
             h2h = get_head_to_head(league.id, str(player1.id), str(player2.id))
 
@@ -311,8 +315,6 @@ class GamesCog(commands.Cog, name="Games"):
 
             await ctx.send(message)
 
-        except League.DoesNotExist:
-            await ctx.send(f"❌ League '{league_name}' not found.")
         except Exception as e:
             await ctx.send(f"❌ Error: {str(e)}")
 

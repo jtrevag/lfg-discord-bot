@@ -3,7 +3,7 @@ Pod optimization algorithm for Commander games.
 Maximizes the number of players who get to play at least once across the week.
 """
 
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Dict, List, Set, Optional
 from dataclasses import dataclass
 from itertools import combinations
 
@@ -41,6 +41,23 @@ class OptimizationResult:
     players_with_games: Set[str]
     players_without_games: Set[str]
     choice_required: Optional[Dict] = None  # For cases where player must choose
+
+
+def group_pods_by_day(pods: List[PodAssignment]) -> Dict[str, List[PodAssignment]]:
+    """Group pod assignments by day.
+
+    Args:
+        pods: List of PodAssignment objects
+
+    Returns:
+        Dict mapping day name to list of pods for that day
+    """
+    pods_by_day: Dict[str, List[PodAssignment]] = {}
+    for pod in pods:
+        if pod.day not in pods_by_day:
+            pods_by_day[pod.day] = []
+        pods_by_day[pod.day].append(pod)
+    return pods_by_day
 
 
 def _can_assign_to_day(
@@ -439,11 +456,7 @@ def format_pod_results(result: OptimizationResult) -> str:
         if scenario_type == "double_play_needed":
             # Show completed pods first
             if result.pods:
-                pods_by_day = {}
-                for pod in result.pods:
-                    if pod.day not in pods_by_day:
-                        pods_by_day[pod.day] = []
-                    pods_by_day[pod.day].append(pod)
+                pods_by_day = group_pods_by_day(result.pods)
 
                 for day in sorted(pods_by_day.keys()):
                     lines.append(f"**{day}:**")
@@ -474,11 +487,7 @@ def format_pod_results(result: OptimizationResult) -> str:
         return "\n".join(lines)
 
     # Group pods by day
-    pods_by_day = {}
-    for pod in result.pods:
-        if pod.day not in pods_by_day:
-            pods_by_day[pod.day] = []
-        pods_by_day[pod.day].append(pod)
+    pods_by_day = group_pods_by_day(result.pods)
 
     for day in sorted(pods_by_day.keys()):
         lines.append(f"**{day}:**")

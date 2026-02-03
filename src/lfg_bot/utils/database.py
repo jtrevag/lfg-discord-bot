@@ -1,5 +1,6 @@
 """Database models and helper functions for game result tracking."""
 
+import json
 import os
 from datetime import datetime, timedelta
 from peewee import (
@@ -213,8 +214,6 @@ def save_poll_and_pods(bot, discord_message_id, result, poll_days):
     Returns:
         Poll object that was created or updated
     """
-    import json
-
     # Get active league
     league = get_active_league()
     if not league:
