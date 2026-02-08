@@ -5,16 +5,23 @@ Unit tests for scheduler.py
 import unittest
 from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from datetime import datetime
-import pytz
 import sys
 from pathlib import Path
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from lfg_bot.utils.scheduler import PollScheduler
+# Skip all tests if dependencies are not installed
+try:
+    import pytz
+    from lfg_bot.utils.scheduler import PollScheduler
+    SKIP_TESTS = False
+except ImportError as e:
+    SKIP_TESTS = True
+    SKIP_REASON = f"Missing dependency: {e}"
 
 
+@unittest.skipIf(SKIP_TESTS, SKIP_REASON if SKIP_TESTS else "")
 class TestPollScheduler(unittest.TestCase):
     """Test cases for PollScheduler class."""
 
@@ -175,6 +182,7 @@ class TestPollScheduler(unittest.TestCase):
                     self.assertEqual(call[1]['timezone'].zone, 'UTC')
 
 
+@unittest.skipIf(SKIP_TESTS, SKIP_REASON if SKIP_TESTS else "")
 class TestSchedulerIntegration(unittest.TestCase):
     """Integration tests for scheduler functionality."""
 

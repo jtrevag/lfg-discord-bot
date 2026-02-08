@@ -28,6 +28,28 @@ class GamesCog(commands.Cog, name="Games"):
     def __init__(self, bot):
         self.bot = bot
 
+    async def _get_league(self, ctx, league_name: str = None):
+        """Get league by name or active league.
+
+        Returns:
+            (league, should_return) tuple. If should_return is True,
+            an error message was sent and the caller should return early.
+        """
+        try:
+            if league_name:
+                league = League.get(League.name == league_name)
+            else:
+                league = get_active_league()
+
+            if not league:
+                await ctx.send("❌ No active league found.")
+                return None, True
+
+            return league, False
+        except League.DoesNotExist:
+            await ctx.send(f"❌ League '{league_name}' not found.")
+            return None, True
+
     # === Button Interaction Handler ===
 
     @commands.Cog.listener()
@@ -196,16 +218,11 @@ class GamesCog(commands.Cog, name="Games"):
         Example: !leaderboard
         Example: !leaderboard Historical Games
         """
+        league, should_return = await self._get_league(ctx, league_name)
+        if should_return:
+            return
+
         try:
-            if league_name:
-                league = League.get(League.name == league_name)
-            else:
-                league = get_active_league()
-
-            if not league:
-                await ctx.send("❌ No active league found.")
-                return
-
             leaderboard = list(get_leaderboard(league.id, min_games=3, limit=10))
 
             if not leaderboard:
@@ -222,8 +239,6 @@ class GamesCog(commands.Cog, name="Games"):
 
             await ctx.send(message)
 
-        except League.DoesNotExist:
-            await ctx.send(f"❌ League '{league_name}' not found.")
         except Exception as e:
             await ctx.send(f"❌ Error: {str(e)}")
 
@@ -239,16 +254,11 @@ class GamesCog(commands.Cog, name="Games"):
         """
         player = player or ctx.author
 
+        league, should_return = await self._get_league(ctx, league_name)
+        if should_return:
+            return
+
         try:
-            if league_name:
-                league = League.get(League.name == league_name)
-            else:
-                league = get_active_league()
-
-            if not league:
-                await ctx.send("❌ No active league found.")
-                return
-
             stats = PlayerStats.get_or_none(
                 (PlayerStats.league == league) &
                 (PlayerStats.player_id == str(player.id))
@@ -270,8 +280,6 @@ class GamesCog(commands.Cog, name="Games"):
 
             await ctx.send(message)
 
-        except League.DoesNotExist:
-            await ctx.send(f"❌ League '{league_name}' not found.")
         except Exception as e:
             await ctx.send(f"❌ Error: {str(e)}")
 
@@ -283,15 +291,11 @@ class GamesCog(commands.Cog, name="Games"):
         Usage: !headtohead @player1 @player2 [league name]
         Example: !headtohead @Patrick @John
         """
-        try:
-            if league_name:
-                league = League.get(League.name == league_name)
-            else:
-                league = get_active_league()
+        league, should_return = await self._get_league(ctx, league_name)
+        if should_return:
+            return
 
-            if not league:
-                await ctx.send("❌ No active league found.")
-                return
+        try:
 
             h2h = get_head_to_head(league.id, str(player1.id), str(player2.id))
 
@@ -311,8 +315,6 @@ class GamesCog(commands.Cog, name="Games"):
 
             await ctx.send(message)
 
-        except League.DoesNotExist:
-            await ctx.send(f"❌ League '{league_name}' not found.")
         except Exception as e:
             await ctx.send(f"❌ Error: {str(e)}")
 
@@ -437,68 +439,7 @@ class GamesCog(commands.Cog, name="Games"):
 
         await ctx.send(message)
 
-    # === Google Sheets Import ===
 
-    @commands.command(name='importsheet')
-    @commands.has_permissions(administrator=True)
-    async def import_sheet(self, ctx, sheet_url: str, *, league_name: str = None):
-        """
-        Import game results from Google Sheets (ADMIN ONLY).
-
-        Sheet must have columns: Week, Player 1, Player 2, Player 3, Player 4, Winner
-        Players must be mapped first using !mapplayer command.
-
-        Usage: !importsheet <sheet_url> [league name]
-        Example: !importsheet https://docs.google.com/spreadsheets/d/... Historical Games
-        """
-        from lfg_bot.utils.database import import_from_google_sheet
-
-        await ctx.send("📥 Starting import... This may take a moment.")
-
-        try:
-            # Get or create league
-            if league_name:
-                league, created = League.get_or_create(
-                    name=league_name,
-                    defaults={
-                        'start_date': datetime.now().date(),
-                        'is_active': False
-                    }
-                )
-                if created:
-                    await ctx.send(f"Created new league: **{league_name}**")
-            else:
-                league = get_active_league()
-                if not league:
-                    await ctx.send("❌ No active league found. Specify a league name.")
-                    return
-
-            # Import games
-            result = import_from_google_sheet(sheet_url, league)
-
-            message = f"✅ **Import Complete!**\n\n"
-            message += f"League: {league.name}\n"
-            message += f"Games Imported: {result['games_imported']}\n"
-            message += f"Pods Created: {result['pods_created']}\n"
-
-            if result.get('errors'):
-                message += f"\n⚠️ **Warnings:**\n"
-                for error in result['errors'][:5]:  # Show first 5 errors
-                    message += f"- {error}\n"
-                if len(result['errors']) > 5:
-                    message += f"... and {len(result['errors']) - 5} more\n"
-
-            await ctx.send(message)
-
-        except Exception as e:
-            await ctx.send(
-                f"❌ Import failed: {str(e)}\n\n"
-                f"**Make sure:**\n"
-                f"1. All players are mapped (`!mapplayer`)\n"
-                f"2. Sheet is publicly readable\n"
-                f"3. Sheet has correct columns: Week, Player 1, Player 2, Player 3, Player 4, Winner\n"
-                f"4. Google credentials file exists at config/google-credentials.json"
-            )
 
 
 async def setup(bot):

@@ -160,7 +160,6 @@ async def create_poll(channel: discord.TextChannel, config: dict) -> discord.Mes
     # Save poll record to database immediately
     try:
         from lfg_bot.utils.database import get_active_league, Poll
-        import json
 
         league = get_active_league()
         if league:

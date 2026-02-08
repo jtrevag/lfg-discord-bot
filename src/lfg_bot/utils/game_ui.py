@@ -20,13 +20,10 @@ async def post_pods_with_buttons(channel: discord.TextChannel, result, poll_reco
         poll_record: Database Poll record
     """
     from lfg_bot.utils.database import Pod, format_player_name
+    from lfg_bot.utils.pod_optimizer import group_pods_by_day
 
     # Group pods by day
-    pods_by_day = {}
-    for assignment in result.pods:
-        if assignment.day not in pods_by_day:
-            pods_by_day[assignment.day] = []
-        pods_by_day[assignment.day].append(assignment)
+    pods_by_day = group_pods_by_day(result.pods)
 
     # Post each day's pods
     for day, assignments in pods_by_day.items():
