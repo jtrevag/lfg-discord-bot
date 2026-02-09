@@ -77,11 +77,14 @@ async def post_pods_with_buttons(channel: discord.TextChannel, result, poll_reco
 
         await channel.send(message_text, view=view)
 
-    # Post players without games (if any)
-    elif result.players_without_games:
+    # Post incomplete pods (games that almost happened)
+    elif result.incomplete_pods:
         from lfg_bot.utils.database import format_player_name
-        players_str = ", ".join([format_player_name(pid) for pid in result.players_without_games])
-        await channel.send(f"\n**Players without games this week:**\n{players_str}")
+        lines = ["**Almost made it:**"]
+        for incomplete in result.incomplete_pods:
+            player_mentions = ", ".join([format_player_name(pid) for pid in incomplete.players])
+            lines.append(f"  {incomplete.day}: {player_mentions} (need {incomplete.needed} more)")
+        await channel.send("\n".join(lines))
 
 
 class DoublePlayVolunteerView(ui.View):
