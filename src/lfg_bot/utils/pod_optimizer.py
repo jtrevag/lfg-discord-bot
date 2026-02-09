@@ -35,11 +35,23 @@ class PodAssignment:
 
 
 @dataclass
+class IncompletePod:
+    """Represents an incomplete pod (1-3 players) that couldn't form a full game."""
+    day: str
+    players: List[str]
+    needed: int  # How many more players needed (4 - len(players))
+
+    def __repr__(self):
+        return f"{self.day}: {', '.join(self.players)} (need {self.needed} more)"
+
+
+@dataclass
 class OptimizationResult:
     """Result of pod optimization."""
     pods: List[PodAssignment]
     players_with_games: Set[str]
     players_without_games: Set[str]
+    incomplete_pods: List[IncompletePod] = None  # Pods that almost formed
     choice_required: Optional[Dict] = None  # For cases where player must choose
 
 
@@ -296,18 +308,20 @@ def _find_best_assignment(
         # - Are not reserved for another day (unless critical for this day)
         # - Can be assigned to this day per their preferences
         def is_eligible(p):
-            # Already assigned and preferences block this day
-            if p in assigned_players:
+            # Can't play the same day twice
+            if day in player_assigned_days.get(p, []):
                 return False
             # Reserved for another day (unless critical for this day)
             if p in reserved_players and p not in critical_for_day:
                 return False
-            # Preferences would be violated (check consecutive nights for first assignment)
+            # Check preferences (one game only, no consecutive nights)
             if not _can_assign_to_day(p, day, player_assigned_days, preferences):
                 return False
             return True
 
         unassigned_available = [p for p in available if is_eligible(p)]
+        # Prioritize players without any games to maximize unique players
+        unassigned_available.sort(key=lambda p: len(player_assigned_days.get(p, [])))
 
         # Form pods while we have enough players
         while len(unassigned_available) >= 4:
@@ -325,6 +339,7 @@ def _find_best_assignment(
 
             # Recalculate available players
             unassigned_available = [p for p in available if is_eligible(p)]
+            unassigned_available.sort(key=lambda p: len(player_assigned_days.get(p, [])))
 
         # After processing this day, release reserved players whose target days
         # can no longer form a pod (because other players were assigned)
@@ -383,10 +398,30 @@ def _find_best_assignment(
 
     players_without_games = all_players - assigned_players
 
+    # STEP 5: Build incomplete pods - days with gameless players that couldn't form pods
+    incomplete_pods = []
+    for day, available in sorted_days:
+        # Players without any games who are available this day
+        gameless_on_day = [p for p in available if p not in assigned_players]
+        if gameless_on_day:
+            # Count total eligible (including multi-day players) for accurate "needed"
+            eligible_on_day = [
+                p for p in available
+                if day not in player_assigned_days.get(p, [])
+                and _can_assign_to_day(p, day, player_assigned_days, preferences)
+            ]
+            if len(eligible_on_day) < 4:
+                incomplete_pods.append(IncompletePod(
+                    day=day,
+                    players=gameless_on_day,
+                    needed=4 - len(eligible_on_day)
+                ))
+
     result = OptimizationResult(
         pods=pods,
         players_with_games=assigned_players,
-        players_without_games=players_without_games
+        players_without_games=players_without_games,
+        incomplete_pods=incomplete_pods
     )
 
     # Set choice_required if there's a double-play opportunity
@@ -412,10 +447,17 @@ def _detect_choice_scenario(
         if len(days) > 1
     }
 
+    # Get pods already formed to skip resolved scenarios
+    pods_by_day = group_pods_by_day(current_result.pods)
+
     for player, days in multi_day_players.items():
         # Check each pair of days this player is available
         for day1, day2 in combinations(days, 2):
             if day1 not in day_to_players or day2 not in day_to_players:
+                continue
+
+            # Skip if pods already formed on both days (no choice needed)
+            if day1 in pods_by_day and day2 in pods_by_day:
                 continue
 
             players_day1 = day_to_players[day1]
@@ -482,8 +524,11 @@ def format_pod_results(result: OptimizationResult) -> str:
 
     if not result.pods:
         lines.append("No pods could be formed this week. Need at least 4 players for one day.")
-        if result.players_without_games:
-            lines.append(f"\n**Players without games:** {', '.join([f'<@{p}>' for p in result.players_without_games])}")
+        if result.incomplete_pods:
+            lines.append("\n**Almost made it:**")
+            for incomplete in result.incomplete_pods:
+                player_mentions = ", ".join([f"<@{p}>" for p in incomplete.players])
+                lines.append(f"  {incomplete.day}: {player_mentions} (need {incomplete.needed} more)")
         return "\n".join(lines)
 
     # Group pods by day
@@ -498,7 +543,11 @@ def format_pod_results(result: OptimizationResult) -> str:
 
     lines.append(f"**Total players with games:** {len(result.players_with_games)}")
 
-    if result.players_without_games:
-        lines.append(f"\n**Players without games this week:** {', '.join([f'<@{p}>' for p in result.players_without_games])}")
+    # Show incomplete pods (games that almost happened)
+    if result.incomplete_pods:
+        lines.append("\n**Almost made it:**")
+        for incomplete in result.incomplete_pods:
+            player_mentions = ", ".join([f"<@{p}>" for p in incomplete.players])
+            lines.append(f"  {incomplete.day}: {player_mentions} (need {incomplete.needed} more)")
 
     return "\n".join(lines)

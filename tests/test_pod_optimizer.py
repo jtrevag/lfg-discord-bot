@@ -15,6 +15,7 @@ from lfg_bot.utils.pod_optimizer import (
     group_pods_by_day,
     PodAssignment,
     OptimizationResult,
+    IncompletePod,
     _find_best_assignment,
     PREF_ONE_GAME_ONLY,
     PREF_NO_CONSECUTIVE,
@@ -132,6 +133,34 @@ class TestPodOptimizer(unittest.TestCase):
         self.assertEqual(len(result.pods), 1)
         self.assertEqual(len(result.players_with_games), 4)
         self.assertEqual(len(result.players_without_games), 1)
+        # Incomplete pod with 1 player who couldn't form a game
+        self.assertEqual(len(result.incomplete_pods), 1)
+        self.assertEqual(result.incomplete_pods[0].day, 'Monday')
+        self.assertEqual(result.incomplete_pods[0].needed, 3)
+
+    def test_incomplete_pods_multiple_days(self):
+        """Test incomplete pods are tracked per day."""
+        availability = {
+            'p1': ['Monday'],
+            'p2': ['Monday'],
+            'p3': ['Monday'],
+            'p4': ['Monday'],
+            'p5': ['Tuesday'],
+            'p6': ['Tuesday'],
+            'p7': ['Wednesday'],
+        }
+
+        result = optimize_pods(availability)
+
+        self.assertEqual(len(result.pods), 1)  # One full pod on Monday
+        self.assertEqual(len(result.incomplete_pods), 2)  # Tuesday (2) and Wednesday (1)
+
+        # Find incomplete pods by day
+        incomplete_by_day = {ip.day: ip for ip in result.incomplete_pods}
+        self.assertIn('Tuesday', incomplete_by_day)
+        self.assertIn('Wednesday', incomplete_by_day)
+        self.assertEqual(incomplete_by_day['Tuesday'].needed, 2)  # 2 players, need 2 more
+        self.assertEqual(incomplete_by_day['Wednesday'].needed, 3)  # 1 player, need 3 more
 
     def test_no_availability(self):
         """Test with no player availability."""
@@ -164,17 +193,19 @@ class TestPodOptimizer(unittest.TestCase):
             self.assertIn('day1', result.choice_required)
             self.assertIn('day2', result.choice_required)
 
-    def test_complete_pod_with_double_play_opportunity(self):
+    def test_multi_day_players_auto_fill_pods(self):
         """
-        Test scenario where a complete 4-player pod exists on one day,
-        and a flexible player could play twice to enable a second pod.
+        Test that multi-day players automatically fill pods on their available days.
+        Players without 'one game only' preference play on all viable days.
 
-        Real scenario from user:
-        - Monday: 4 players (including Patrick and Eli)
-        - Tuesday: 3 players (can't form pod)
-        - Wednesday: 5 players (including Patrick and Eli)
+        Scenario:
+        - Monday: 4 players (n8, chris, patrick, eli)
+        - Tuesday: 3 players (patrick, chad, matt) - can't form pod
+        - Wednesday: 5 players (patrick, eli, chad, matt, trevor)
 
-        Expected: Monday pod forms, Wednesday prompts Patrick or Eli to play twice.
+        Expected: Monday pod forms, Wednesday pod forms with multi-day players
+        auto-filling. Gameless players (chad, matt, trevor) get priority in
+        Wednesday pod.
         """
         availability = {
             'n8': ['Monday'],
@@ -188,35 +219,33 @@ class TestPodOptimizer(unittest.TestCase):
 
         result = optimize_pods(availability)
 
-        # Should form 1 pod (Monday) and have a choice scenario for Wednesday
-        self.assertEqual(len(result.pods), 1,
-            "Should form 1 pod (Monday) and prompt for Wednesday")
+        # Should form 2 pods (Monday + Wednesday auto-filled)
+        self.assertEqual(len(result.pods), 2,
+            f"Should form 2 pods. Got: {result.pods}")
 
-        # Monday should be the formed pod
-        self.assertEqual(result.pods[0].day, 'Monday',
-            "Monday should form a pod (has exactly 4 players)")
+        # Monday pod
+        monday_pods = [p for p in result.pods if p.day == 'Monday']
+        self.assertEqual(len(monday_pods), 1, "Should have 1 Monday pod")
 
-        # 4 players should have confirmed games (Monday pod)
-        self.assertEqual(len(result.players_with_games), 4,
-            "4 players have confirmed games from Monday pod")
+        # Wednesday pod forms with multi-day players auto-assigned
+        wednesday_pods = [p for p in result.pods if p.day == 'Wednesday']
+        self.assertEqual(len(wednesday_pods), 1, "Should have 1 Wednesday pod")
 
-        # Should have a choice scenario for double-play
-        self.assertIsNotNone(result.choice_required,
-            "Should have a choice scenario for Wednesday")
-        self.assertEqual(result.choice_required['scenario'], 'double_play_needed',
-            "Choice scenario should be for double-play")
-        self.assertEqual(result.choice_required['day'], 'Wednesday',
-            "Choice should be for Wednesday")
+        # Gameless players should be prioritized in Wednesday pod
+        wed_players = wednesday_pods[0].players
+        self.assertIn('chad', wed_players, "Chad (gameless) should be in Wednesday pod")
+        self.assertIn('matt', wed_players, "Matt (gameless) should be in Wednesday pod")
+        self.assertIn('trevor', wed_players, "Trevor (gameless) should be in Wednesday pod")
 
-        # Should list the 3 waiting players
-        self.assertEqual(len(result.choice_required['waiting_players']), 3,
-            "Should have 3 players waiting (trevor, chad, matt)")
+        # All 7 players should have games
+        self.assertEqual(len(result.players_with_games), 7,
+            f"All 7 players should have games, got {len(result.players_with_games)}")
+        self.assertEqual(len(result.players_without_games), 0,
+            "No players without games")
 
-        # Should list flexible candidates (patrick and eli)
-        self.assertIn('patrick', result.choice_required['flexible_candidates'],
-            "Patrick should be a flexible candidate")
-        self.assertIn('eli', result.choice_required['flexible_candidates'],
-            "Eli should be a flexible candidate")
+        # No choice scenario needed (pods form automatically)
+        self.assertIsNone(result.choice_required,
+            "No choice scenario needed - pods form automatically")
 
 
     def test_eight_flexible_players_one_day_three_on_other_days(self):
@@ -296,15 +325,15 @@ class TestPodOptimizer(unittest.TestCase):
             "Monday should be processed first as it's earlier in the week")
         self.assertEqual(result.pods[1].day, 'Wednesday')
 
-    def test_earlier_day_preferred_with_flexible_players(self):
+    def test_flexible_player_fills_both_days(self):
         """
-        When a flexible player could enable pods on multiple days,
-        prefer assigning them to the earlier day.
+        A flexible player without 'one game only' preference plays on all
+        their available days, enabling pods that would otherwise fail.
 
         Scenario:
         - Monday: A, B, C + Flex (4 with Flex)
         - Wednesday: D, E, F + Flex (4 with Flex)
-        Flex should be assigned to Monday so players get a game earlier.
+        Flex plays both days since no preference limits them.
         """
         availability = {
             'Flex': ['Monday', 'Wednesday'],
@@ -318,31 +347,37 @@ class TestPodOptimizer(unittest.TestCase):
 
         result = optimize_pods(availability)
 
-        # Only 1 pod can form (Flex can only be in one)
-        self.assertEqual(len(result.pods), 1)
+        # Both pods form (Flex plays twice)
+        self.assertEqual(len(result.pods), 2,
+            f"Both pods should form. Got: {result.pods}")
 
-        # Should be Monday pod
-        self.assertEqual(result.pods[0].day, 'Monday',
-            "Flex should be assigned to Monday (earlier day)")
-        self.assertIn('Flex', result.pods[0].players)
+        # Monday pod with Flex
+        monday_pods = [p for p in result.pods if p.day == 'Monday']
+        self.assertEqual(len(monday_pods), 1)
+        self.assertIn('Flex', monday_pods[0].players)
 
-    def test_reserved_player_released_when_target_day_impossible(self):
+        # Wednesday pod with Flex
+        wednesday_pods = [p for p in result.pods if p.day == 'Wednesday']
+        self.assertEqual(len(wednesday_pods), 1)
+        self.assertIn('Flex', wednesday_pods[0].players)
+
+        # All 7 players have games
+        self.assertEqual(len(result.players_with_games), 7)
+        self.assertEqual(len(result.players_without_games), 0)
+
+    def test_multi_day_players_fill_all_viable_days(self):
         """
-        Bug reproduction: Reserved player should be released when their target day
-        can no longer form a pod.
+        Multi-day players fill pods on all their available days.
 
-        Scenario from user:
+        Scenario:
         - Monday: Patrick, N8, Eli, M@ (4 players, complete pod)
-        - Tuesday: Patrick, Chad, Eli, M@ (4 players, but 3 overlap with Monday)
+        - Tuesday: Patrick, Chad, Eli, M@ (4 players, 3 overlap with Monday)
         - Wednesday: Patrick, Zaq, Trevor, Chad, Eli, M@, John (7 players)
 
-        Chad is marked as "critical" for Tuesday because Tuesday has exactly 4 players.
-        However, when Monday forms a pod with Patrick/Eli/M@, Tuesday can no longer
-        form a pod (only Chad left). Chad should then be released and available for
-        Wednesday, allowing a second pod to form.
+        With multi-day play enabled, Patrick/Eli/M@ play Monday AND Tuesday,
+        Chad fills Tuesday, and Wednesday forms with gameless players prioritized.
 
-        Expected: 2 pods (Monday + Wednesday)
-        Bug: Only 1 pod (Monday), Chad stays reserved for impossible Tuesday
+        Expected: 3 pods (Monday + Tuesday + Wednesday), all 8 players get games.
         """
         availability = {
             'Patrick': ['Monday', 'Tuesday', 'Wednesday'],
@@ -357,29 +392,29 @@ class TestPodOptimizer(unittest.TestCase):
 
         result = optimize_pods(availability)
 
-        # Should form 2 pods
-        self.assertEqual(len(result.pods), 2,
-            f"Should form 2 pods, got {len(result.pods)}. Pods: {result.pods}")
+        # Should form 3 pods (multi-day players fill all viable days)
+        self.assertEqual(len(result.pods), 3,
+            f"Should form 3 pods, got {len(result.pods)}. Pods: {result.pods}")
 
         # Monday pod
         monday_pods = [p for p in result.pods if p.day == 'Monday']
         self.assertEqual(len(monday_pods), 1, "Should have 1 Monday pod")
-        self.assertIn('Patrick', monday_pods[0].players)
         self.assertIn('N8', monday_pods[0].players)
-        self.assertIn('Eli', monday_pods[0].players)
-        self.assertIn('M@', monday_pods[0].players)
 
-        # Wednesday pod should form with remaining players including Chad
+        # Tuesday pod (multi-day players + Chad)
+        tuesday_pods = [p for p in result.pods if p.day == 'Tuesday']
+        self.assertEqual(len(tuesday_pods), 1, "Should have 1 Tuesday pod")
+        self.assertIn('Chad', tuesday_pods[0].players,
+            "Chad (gameless) should be prioritized in Tuesday pod")
+
+        # Wednesday pod (gameless players prioritized)
         wednesday_pods = [p for p in result.pods if p.day == 'Wednesday']
-        self.assertEqual(len(wednesday_pods), 1,
-            f"Should have 1 Wednesday pod. Players without games: {result.players_without_games}")
-        self.assertIn('Chad', wednesday_pods[0].players,
-            "Chad should be in Wednesday pod after Tuesday becomes impossible")
+        self.assertEqual(len(wednesday_pods), 1, "Should have 1 Wednesday pod")
         self.assertIn('Zaq', wednesday_pods[0].players)
         self.assertIn('Trevor', wednesday_pods[0].players)
         self.assertIn('John', wednesday_pods[0].players)
 
-        # 8 players should have games
+        # All 8 players should have games
         self.assertEqual(len(result.players_with_games), 8,
             f"8 players should have games, got {len(result.players_with_games)}")
 
@@ -410,26 +445,32 @@ class TestFormatResults(unittest.TestCase):
         result = OptimizationResult(
             pods=[],
             players_with_games=set(),
-            players_without_games={'alice', 'bob'}
+            players_without_games={'alice', 'bob'},
+            incomplete_pods=[IncompletePod(day='Monday', players=['alice', 'bob'], needed=2)]
         )
 
         formatted = format_pod_results(result)
 
         self.assertIn('No pods could be formed', formatted)
-        self.assertIn('Players without games', formatted)
+        self.assertIn('Almost made it', formatted)
+        self.assertIn('Monday', formatted)
+        self.assertIn('need 2 more', formatted)
 
     def test_format_with_leftover_players(self):
         """Test formatting with players who didn't get games."""
         result = OptimizationResult(
             pods=[PodAssignment(day='Monday', players=['p1', 'p2', 'p3', 'p4'])],
             players_with_games={'p1', 'p2', 'p3', 'p4'},
-            players_without_games={'p5'}
+            players_without_games={'p5'},
+            incomplete_pods=[IncompletePod(day='Tuesday', players=['p5'], needed=3)]
         )
 
         formatted = format_pod_results(result)
 
-        self.assertIn('Players without games', formatted)
+        self.assertIn('Almost made it', formatted)
+        self.assertIn('Tuesday', formatted)
         self.assertIn('p5', formatted)
+        self.assertIn('need 3 more', formatted)
 
     def test_format_choice_scenario(self):
         """Test formatting a choice scenario."""
