@@ -472,6 +472,25 @@ class TestFormatResults(unittest.TestCase):
         self.assertIn('p5', formatted)
         self.assertIn('need 3 more', formatted)
 
+    def test_format_incomplete_with_volunteers(self):
+        """Test formatting incomplete pods that show eligible volunteers."""
+        result = OptimizationResult(
+            pods=[PodAssignment(day='Wednesday', players=['justin', 'chad', 'zach', 'trevor'])],
+            players_with_games={'justin', 'chad', 'zach', 'trevor'},
+            players_without_games={'kyle', 'eli'},
+            incomplete_pods=[
+                IncompletePod(day='Monday', players=['kyle', 'eli'], needed=1, eligible_volunteers=['justin']),
+                IncompletePod(day='Thursday', players=['eli'], needed=1, eligible_volunteers=['zach']),
+            ]
+        )
+
+        formatted = format_pod_results(result)
+
+        self.assertIn('Almost made it', formatted)
+        self.assertIn('Could play', formatted)
+        self.assertIn('justin', formatted)
+        self.assertIn('zach', formatted)
+
     def test_format_choice_scenario(self):
         """Test formatting a choice scenario."""
         result = OptimizationResult(
