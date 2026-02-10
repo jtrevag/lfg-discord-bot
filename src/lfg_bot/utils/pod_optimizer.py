@@ -40,6 +40,7 @@ class IncompletePod:
     day: str
     players: List[str]
     needed: int  # How many more players needed (4 - len(players))
+    eligible_volunteers: List[str] = None  # Assigned players who could play this day
 
     def __repr__(self):
         return f"{self.day}: {', '.join(self.players)} (need {self.needed} more)"
@@ -411,10 +412,16 @@ def _find_best_assignment(
                 and _can_assign_to_day(p, day, player_assigned_days, preferences)
             ]
             if len(eligible_on_day) < 4:
+                # Find assigned players who could volunteer for this day
+                volunteers = [
+                    p for p in eligible_on_day
+                    if p in assigned_players
+                ]
                 incomplete_pods.append(IncompletePod(
                     day=day,
                     players=gameless_on_day,
-                    needed=4 - len(eligible_on_day)
+                    needed=4 - len(eligible_on_day),
+                    eligible_volunteers=volunteers
                 ))
 
     result = OptimizationResult(
@@ -528,7 +535,11 @@ def format_pod_results(result: OptimizationResult) -> str:
             lines.append("\n**Almost made it:**")
             for incomplete in result.incomplete_pods:
                 player_mentions = ", ".join([f"<@{p}>" for p in incomplete.players])
-                lines.append(f"  {incomplete.day}: {player_mentions} (need {incomplete.needed} more)")
+                line = f"  {incomplete.day}: {player_mentions} (need {incomplete.needed} more)"
+                if incomplete.eligible_volunteers:
+                    vol_mentions = ", ".join([f"<@{p}>" for p in incomplete.eligible_volunteers])
+                    line += f"\n    ↳ Could play: {vol_mentions}"
+                lines.append(line)
         return "\n".join(lines)
 
     # Group pods by day
@@ -548,6 +559,10 @@ def format_pod_results(result: OptimizationResult) -> str:
         lines.append("\n**Almost made it:**")
         for incomplete in result.incomplete_pods:
             player_mentions = ", ".join([f"<@{p}>" for p in incomplete.players])
-            lines.append(f"  {incomplete.day}: {player_mentions} (need {incomplete.needed} more)")
+            line = f"  {incomplete.day}: {player_mentions} (need {incomplete.needed} more)"
+            if incomplete.eligible_volunteers:
+                vol_mentions = ", ".join([f"<@{p}>" for p in incomplete.eligible_volunteers])
+                line += f"\n    ↳ Could play: {vol_mentions}"
+            lines.append(line)
 
     return "\n".join(lines)

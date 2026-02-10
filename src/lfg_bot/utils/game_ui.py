@@ -83,7 +83,11 @@ async def post_pods_with_buttons(channel: discord.TextChannel, result, poll_reco
         lines = ["**Almost made it:**"]
         for incomplete in result.incomplete_pods:
             player_mentions = ", ".join([format_player_name(pid) for pid in incomplete.players])
-            lines.append(f"  {incomplete.day}: {player_mentions} (need {incomplete.needed} more)")
+            line = f"  {incomplete.day}: {player_mentions} (need {incomplete.needed} more)"
+            if incomplete.eligible_volunteers:
+                vol_mentions = ", ".join([f"<@{pid}>" for pid in incomplete.eligible_volunteers])
+                line += f"\n    ↳ Could play: {vol_mentions}"
+            lines.append(line)
         await channel.send("\n".join(lines))
 
 
