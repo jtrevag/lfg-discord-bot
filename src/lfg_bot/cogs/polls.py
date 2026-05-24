@@ -38,6 +38,10 @@ class PollsCog(commands.Cog, name="Polls"):
             return
 
         self.bot.cedh_players = {str(member.id) for member in role.members}
+
+        from lfg_bot.utils.database import save_cedh_players
+        save_cedh_players(self.bot.cedh_players)
+
         await ctx.send(f"cEDH-League roles refreshed: {len(self.bot.cedh_players)} player(s) found.")
 
     @commands.command(name='calculatepods')

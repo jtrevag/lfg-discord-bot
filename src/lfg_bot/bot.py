@@ -81,9 +81,13 @@ def create_bot():
         print(f'Bot is in {len(bot.guilds)} guild(s)')
 
         # Verify database connectivity
-        from lfg_bot.utils.database import verify_database
+        from lfg_bot.utils.database import verify_database, get_cedh_players
         verify_database(bot.db)
         print('Database initialized and verified')
+
+        # Restore cEDH-League role cache from database
+        bot.cedh_players = get_cedh_players()
+        print(f'Loaded {len(bot.cedh_players)} cEDH-League player(s) from database')
 
         # Recover any incomplete polls that finished while bot was offline
         await recover_incomplete_polls(bot)
