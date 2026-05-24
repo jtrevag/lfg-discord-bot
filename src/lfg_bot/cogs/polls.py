@@ -28,6 +28,18 @@ class PollsCog(commands.Cog, name="Polls"):
         from lfg_bot.bot import create_poll
         await create_poll(ctx.channel, self.bot.config)
 
+    @commands.command(name='refreshroles')
+    @commands.has_permissions(administrator=True)
+    async def refresh_roles_command(self, ctx):
+        """Refresh cEDH-League role assignments from Discord (admin only)."""
+        role = discord.utils.get(ctx.guild.roles, name='CEDH-League')
+        if not role:
+            await ctx.send("Could not find the 'CEDH-League' role in this server.")
+            return
+
+        self.bot.cedh_players = {str(member.id) for member in role.members}
+        await ctx.send(f"cEDH-League roles refreshed: {len(self.bot.cedh_players)} player(s) found.")
+
     @commands.command(name='calculatepods')
     @commands.has_permissions(administrator=True)
     async def calculate_pods_command(self, ctx):
