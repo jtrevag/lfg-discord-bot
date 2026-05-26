@@ -42,6 +42,7 @@ class Player(BaseModel):
 
     discord_user_id = CharField(primary_key=True)  # Discord user ID
     real_name = CharField(null=True)  # Real name (e.g., "Patrick")
+    is_cedh = BooleanField(default=False)  # Holds the CEDH-League Discord role
     created_at = DateTimeField(default=datetime.now)
     updated_at = DateTimeField(default=datetime.now)
 
@@ -131,6 +132,12 @@ def initialize_database(db_path='data/lfg_bot.db'):
     # Create tables
     db.create_tables([League, Player, Poll, Pod, GameResult, PlayerStats])
 
+    # Add is_cedh column if upgrading from an older database that predates it
+    try:
+        db.execute_sql('ALTER TABLE player ADD COLUMN is_cedh INTEGER NOT NULL DEFAULT 0')
+    except Exception:
+        pass  # Column already exists
+
     # Create default league if none exists
     if League.select().count() == 0:
         League.create(
@@ -185,6 +192,26 @@ def get_discord_id(real_name):
     """
     player = Player.get_or_none(Player.real_name == real_name)
     return player.discord_user_id if player else None
+
+
+def save_cedh_players(player_ids: set):
+    """Persist the current CEDH-League role members to the database.
+
+    Clears all existing cEDH flags, then sets the flag for each player in
+    player_ids (creating Player rows for any new Discord IDs).
+    """
+    Player.update(is_cedh=False).execute()
+    for player_id in player_ids:
+        Player.get_or_create(discord_user_id=player_id)
+    if player_ids:
+        Player.update(is_cedh=True).where(
+            Player.discord_user_id.in_(list(player_ids))
+        ).execute()
+
+
+def get_cedh_players() -> set:
+    """Return the set of Discord user IDs currently flagged as cEDH-League."""
+    return {p.discord_user_id for p in Player.select().where(Player.is_cedh == True)}
 
 
 def format_player_name(discord_user_id):

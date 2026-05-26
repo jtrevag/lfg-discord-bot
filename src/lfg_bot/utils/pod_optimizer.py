@@ -29,9 +29,10 @@ class PodAssignment:
     """Represents a pod assignment for a specific day."""
     day: str
     players: List[str]
+    game_type: str = "casual"  # "cEDH league" if all 4 players hold the cEDH role
 
     def __repr__(self):
-        return f"{self.day}: {', '.join(self.players)}"
+        return f"{self.day} ({self.game_type}): {', '.join(self.players)}"
 
 
 @dataclass
@@ -111,7 +112,8 @@ def _can_assign_to_day(
 
 def optimize_pods(
     availability: Dict[str, List[str]],
-    preferences: Dict[str, Set[str]] = None
+    preferences: Dict[str, Set[str]] = None,
+    cedh_players: Set[str] = None
 ) -> OptimizationResult:
     """
     Optimize pod creation to maximize players who play at least once.
@@ -120,6 +122,8 @@ def optimize_pods(
         availability: Dict mapping player_id -> list of available days
         preferences: Dict mapping player_id -> set of preference flags
                     (e.g., PREF_ONE_GAME_ONLY, PREF_NO_CONSECUTIVE)
+        cedh_players: Set of player IDs that hold the cEDH-League role.
+                      A pod is labeled "cEDH league" only when all 4 players are in this set.
 
     Returns:
         OptimizationResult with pod assignments and statistics
@@ -127,6 +131,8 @@ def optimize_pods(
     # Default to empty preferences if not provided
     if preferences is None:
         preferences = {}
+    if cedh_players is None:
+        cedh_players = set()
 
     # Invert the mapping: day -> list of available players
     day_to_players: Dict[str, List[str]] = {}
@@ -139,7 +145,7 @@ def optimize_pods(
             day_to_players[day].append(player)
 
     # Try to find optimal pod assignments
-    best_result = _find_best_assignment(day_to_players, all_players, availability, preferences)
+    best_result = _find_best_assignment(day_to_players, all_players, availability, preferences, cedh_players)
 
     # Check for scenarios where a multi-day player enables multiple pods
     choice_scenario = _detect_choice_scenario(availability, day_to_players, best_result)
@@ -232,7 +238,8 @@ def _find_best_assignment(
     day_to_players: Dict[str, List[str]],
     all_players: Set[str],
     availability: Dict[str, List[str]] = None,
-    preferences: Dict[str, Set[str]] = None
+    preferences: Dict[str, Set[str]] = None,
+    cedh_players: Set[str] = None
 ) -> OptimizationResult:
     """
     Find the best pod assignment using enhanced greedy approach.
@@ -252,6 +259,8 @@ def _find_best_assignment(
     # Default to empty preferences if not provided
     if preferences is None:
         preferences = {}
+    if cedh_players is None:
+        cedh_players = set()
 
     # If availability not provided, reconstruct it (for backwards compatibility)
     if availability is None:
@@ -320,14 +329,19 @@ def _find_best_assignment(
                 return False
             return True
 
+        def sort_key(p):
+            # Players without games first; among equals, cEDH players before casual
+            return (len(player_assigned_days.get(p, [])), 0 if p in cedh_players else 1)
+
         unassigned_available = [p for p in available if is_eligible(p)]
-        # Prioritize players without any games to maximize unique players
-        unassigned_available.sort(key=lambda p: len(player_assigned_days.get(p, [])))
+        # Prioritize players without any games to maximize unique players; break ties by cEDH role
+        unassigned_available.sort(key=sort_key)
 
         # Form pods while we have enough players
         while len(unassigned_available) >= 4:
             pod_players = unassigned_available[:4]
-            pods.append(PodAssignment(day=day, players=pod_players))
+            game_type = "cEDH league" if all(p in cedh_players for p in pod_players) else "casual"
+            pods.append(PodAssignment(day=day, players=pod_players, game_type=game_type))
 
             for player in pod_players:
                 assigned_players.add(player)
@@ -340,7 +354,7 @@ def _find_best_assignment(
 
             # Recalculate available players
             unassigned_available = [p for p in available if is_eligible(p)]
-            unassigned_available.sort(key=lambda p: len(player_assigned_days.get(p, [])))
+            unassigned_available.sort(key=sort_key)
 
         # After processing this day, release reserved players whose target days
         # can no longer form a pod (because other players were assigned)
@@ -511,7 +525,7 @@ def format_pod_results(result: OptimizationResult) -> str:
                     lines.append(f"**{day}:**")
                     for i, pod in enumerate(pods_by_day[day], 1):
                         player_mentions = ", ".join([f"<@{p}>" for p in pod.players])
-                        lines.append(f"  Pod {i}: {player_mentions}")
+                        lines.append(f"  Pod {i} ({pod.game_type}): {player_mentions}")
                     lines.append("")
 
             # Then show the choice prompt
@@ -549,7 +563,7 @@ def format_pod_results(result: OptimizationResult) -> str:
         lines.append(f"**{day}:**")
         for i, pod in enumerate(pods_by_day[day], 1):
             player_mentions = ", ".join([f"<@{p}>" for p in pod.players])
-            lines.append(f"  Pod {i}: {player_mentions}")
+            lines.append(f"  Pod {i} ({pod.game_type}): {player_mentions}")
         lines.append("")
 
     lines.append(f"**Total players with games:** {len(result.players_with_games)}")

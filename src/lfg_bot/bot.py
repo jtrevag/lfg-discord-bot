@@ -54,6 +54,7 @@ def create_bot():
     intents = discord.Intents.default()
     intents.message_content = True
     intents.guilds = True
+    intents.members = True  # Required to read role.members for !refreshroles
     intents.polls = True
 
     bot = commands.Bot(command_prefix='!', intents=intents)
@@ -64,6 +65,7 @@ def create_bot():
     # Global state
     bot.active_poll_id = None
     bot.poll_scheduler = None
+    bot.cedh_players = set()  # Player IDs with the CEDH-League role; populated via !refreshroles
 
     # Initialize database
     from lfg_bot.utils.database import initialize_database
@@ -79,9 +81,13 @@ def create_bot():
         print(f'Bot is in {len(bot.guilds)} guild(s)')
 
         # Verify database connectivity
-        from lfg_bot.utils.database import verify_database
+        from lfg_bot.utils.database import verify_database, get_cedh_players
         verify_database(bot.db)
         print('Database initialized and verified')
+
+        # Restore cEDH-League role cache from database
+        bot.cedh_players = get_cedh_players()
+        print(f'Loaded {len(bot.cedh_players)} cEDH-League player(s) from database')
 
         # Recover any incomplete polls that finished while bot was offline
         await recover_incomplete_polls(bot)
@@ -337,8 +343,9 @@ async def process_poll_results(poll: discord.Poll, channel: discord.TextChannel,
         await channel.send("No votes recorded yet. Waiting for players to vote!")
         return
 
-    # Optimize pods with preferences
-    result = optimize_pods(availability, preferences)
+    # Optimize pods with preferences and cEDH role data
+    cedh_players = getattr(bot, 'cedh_players', set())
+    result = optimize_pods(availability, preferences, cedh_players=cedh_players)
 
     # Save to database
     from lfg_bot.utils.database import save_poll_and_pods
