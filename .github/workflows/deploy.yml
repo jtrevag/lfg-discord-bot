@@ -1,0 +1,26 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test-and-deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: python3 -m unittest discover tests -v
+
+      - name: Pull latest code to deployment directory
+        run: |
+          cd /var/lib/casaos/apps/lfg-discord-bot
+          git pull
+
+      - name: Rebuild and restart container
+        run: |
+          cd /var/lib/casaos/apps/lfg-discord-bot
+          docker compose up -d --build
