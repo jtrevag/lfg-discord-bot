@@ -47,7 +47,7 @@ async def post_pods_with_buttons(channel: discord.TextChannel, result, poll_reco
                     format_player_name(pod.player4_id)
                 ]
 
-                pod_text = f"Pod {idx}: {', '.join(players)}\n"
+                pod_text = f"Pod {idx} ({assignment.game_type}): {', '.join(players)}\n"
                 day_message += pod_text
 
         # Post all pods for this day in a single message
